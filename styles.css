@@ -16,7 +16,7 @@ body { color:var(--cream); font-family:Montserrat,system-ui,sans-serif; overflow
 .ambient--two { width:20rem; height:20rem; bottom:-12rem; left:-8rem; animation-delay:-7s; }
 .content { z-index:3; width:min(100%,46rem); text-align:center; display:flex; flex-direction:column; align-items:center; }
 .logo-stage { position:relative; width:min(92vw,54rem); display:grid; place-items:center; isolation:isolate; }
-.official-logo { position:relative; z-index:2; display:block; width:100%; height:auto; object-fit:contain; user-select:none; -webkit-user-drag:none; filter:drop-shadow(0 10px 38px rgba(0,0,0,.55)); }
+.official-logo { position:relative; z-index:2; display:block; width:100%; height:auto; object-fit:contain; user-select:none; -webkit-user-drag:none; }
 .logo-halo { position:absolute; z-index:0; width:56%; aspect-ratio:1; border-radius:50%; background:radial-gradient(circle,rgba(214,182,96,.2),rgba(214,182,96,.06) 38%,transparent 68%); filter:blur(28px); animation:halo-breathe 6s ease-in-out infinite; }
 .logo-orbit { position:absolute; z-index:1; border:1px solid rgba(214,182,96,.13); border-radius:50%; animation:spin 22s linear infinite; }
 .logo-orbit--outer { width:47%; aspect-ratio:1; }
