@@ -15,25 +15,23 @@ body { color:var(--cream); font-family:Montserrat,system-ui,sans-serif; overflow
 .ambient--one { width:30rem; height:30rem; top:-18rem; right:-10rem; }
 .ambient--two { width:20rem; height:20rem; bottom:-12rem; left:-8rem; animation-delay:-7s; }
 .content { z-index:3; width:min(100%,46rem); text-align:center; display:flex; flex-direction:column; align-items:center; }
-.eyebrow { margin:0 0 clamp(1.5rem,4vh,2.6rem); color:var(--gold-light); font-family:Cinzel,Georgia,serif; font-size:clamp(.67rem,1.4vw,.86rem); letter-spacing:.42em; text-transform:uppercase; }
-.eclipse-wrap { position:relative; width:clamp(8rem,20vw,12rem); aspect-ratio:1; display:grid; place-items:center; margin-bottom:clamp(.9rem,2vh,1.4rem); }
-.eclipse { position:relative; width:73%; aspect-ratio:1; border-radius:50%; background:radial-gradient(circle at 40% 35%,#191814,#030303 66%); box-shadow:0 0 6px #fff1b2,0 0 18px #d9a735,0 0 52px rgba(214,182,96,.55),0 0 110px rgba(214,182,96,.18); animation:breathe 6s ease-in-out infinite; }
-.eclipse::before { content:""; position:absolute; inset:-2px; z-index:-1; border-radius:inherit; background:conic-gradient(from 20deg,transparent 0 34%,#fff3bd 43%,#c9992b 53%,transparent 62%); filter:blur(2px); }
-.eclipse__shadow { position:absolute; inset:5%; border-radius:50%; background:#020202; transform:translate(-5%,-2%); }
-.orbit { position:absolute; inset:0; border:1px solid rgba(214,182,96,.15); border-radius:50%; animation:spin 18s linear infinite; }
-.orbit span { position:absolute; width:4px; aspect-ratio:1; border-radius:50%; top:11%; left:18%; background:var(--gold-light); box-shadow:0 0 9px var(--gold-light); }
-h1 { margin:0; font-family:Cinzel,Georgia,serif; font-size:clamp(4.4rem,15vw,8.8rem); font-weight:400; line-height:.85; letter-spacing:.18em; text-indent:.18em; background:linear-gradient(115deg,#a77b27 5%,#f4e1a0 37%,#b38631 62%,#f4e1a0 82%,#987024); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 3px 18px rgba(214,182,96,.14)); }
-.rule { display:block; width:clamp(4rem,13vw,7rem); height:1px; margin:1.25rem auto .95rem; background:linear-gradient(90deg,transparent,var(--gold),transparent); }
-.slogan { margin:0; color:var(--gold-light); font-family:Cinzel,Georgia,serif; font-size:clamp(.58rem,1.35vw,.78rem); letter-spacing:.34em; text-transform:uppercase; }
-.announcement { margin-top:clamp(2rem,5vh,3.2rem); }
+.logo-stage { position:relative; width:min(92vw,54rem); display:grid; place-items:center; isolation:isolate; }
+.official-logo { position:relative; z-index:2; display:block; width:100%; height:auto; object-fit:contain; user-select:none; -webkit-user-drag:none; filter:drop-shadow(0 10px 38px rgba(0,0,0,.55)); }
+.logo-halo { position:absolute; z-index:0; width:56%; aspect-ratio:1; border-radius:50%; background:radial-gradient(circle,rgba(214,182,96,.2),rgba(214,182,96,.06) 38%,transparent 68%); filter:blur(28px); animation:halo-breathe 6s ease-in-out infinite; }
+.logo-orbit { position:absolute; z-index:1; border:1px solid rgba(214,182,96,.13); border-radius:50%; animation:spin 22s linear infinite; }
+.logo-orbit--outer { width:47%; aspect-ratio:1; }
+.logo-orbit--inner { width:36%; aspect-ratio:1; animation-direction:reverse; animation-duration:16s; }
+.logo-orbit span { position:absolute; width:4px; aspect-ratio:1; border-radius:50%; top:10%; left:18%; background:var(--gold-light); box-shadow:0 0 12px var(--gold-light); }
+.logo-orbit--inner span { top:72%; left:93%; width:3px; }
+.announcement { margin-top:clamp(.8rem,2.5vh,1.8rem); }
 .announcement > p:first-child { margin:0; color:#d7d2c8; font-family:Cinzel,Georgia,serif; font-size:clamp(.9rem,2vw,1.15rem); font-weight:400; line-height:1.8; letter-spacing:.06em; }
 .coming-soon { margin:1.05rem 0 0; color:var(--gold); font-size:.72rem; letter-spacing:.38em; text-transform:uppercase; }
 .hashtag { display:inline-block; margin-top:clamp(1.8rem,4vh,2.6rem); color:var(--muted); font-size:.65rem; letter-spacing:.2em; text-decoration:none; transition:color .25s, text-shadow .25s; }
 .hashtag:hover,.hashtag:focus-visible { color:var(--gold-light); text-shadow:0 0 14px rgba(214,182,96,.45); }
 footer { position:absolute; z-index:3; bottom:1.2rem; left:0; width:100%; display:flex; justify-content:center; gap:.8rem; color:#665f54; font-size:.52rem; letter-spacing:.25em; text-transform:uppercase; }
 .reveal { opacity:0; transform:translateY(12px); animation:reveal .9s cubic-bezier(.2,.7,.2,1) forwards; }
-.reveal:nth-child(2){animation-delay:.18s}.reveal:nth-child(3){animation-delay:.4s}.reveal:nth-child(4){animation-delay:.68s}.reveal:nth-child(5){animation-delay:.9s}
-@keyframes reveal { to{opacity:1;transform:none} } @keyframes spin{to{transform:rotate(1turn)}} @keyframes breathe{50%{box-shadow:0 0 8px #fff1b2,0 0 25px #d9a735,0 0 70px rgba(214,182,96,.62),0 0 125px rgba(214,182,96,.22)}} @keyframes drift{to{transform:translate(3rem,2rem) scale(1.1)}}
-@media (max-height:760px){.hero{padding-top:1.4rem}.eyebrow{margin-bottom:.8rem}.eclipse-wrap{width:7rem;margin-bottom:.5rem}.announcement{margin-top:1.3rem}.hashtag{margin-top:1rem}}
-@media (max-width:520px){h1{font-size:clamp(4rem,23vw,6.3rem)}.desktop-break{display:none}.eyebrow{letter-spacing:.3em}.slogan{letter-spacing:.25em}.hero{padding-inline:1rem}}
+.reveal:nth-child(3){animation-delay:.45s}.reveal:nth-child(4){animation-delay:.75s}
+@keyframes reveal { to{opacity:1;transform:none} } @keyframes spin{to{transform:rotate(1turn)}} @keyframes halo-breathe{50%{opacity:.55;transform:scale(1.12)}} @keyframes drift{to{transform:translate(3rem,2rem) scale(1.1)}}
+@media (max-height:760px){.hero{padding-top:1rem}.logo-stage{width:min(78vw,42rem)}.announcement{margin-top:.4rem}.hashtag{margin-top:.8rem}}
+@media (max-width:520px){.logo-stage{width:108vw}.desktop-break{display:none}.announcement{margin-top:.5rem}.hero{padding-inline:.75rem}.logo-orbit--outer{width:52%}.logo-orbit--inner{width:40%}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}.reveal{opacity:1;transform:none}#particles{display:none}}

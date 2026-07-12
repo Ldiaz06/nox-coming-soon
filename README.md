@@ -4,11 +4,11 @@ Landing page estática para **NOX**, diseñada en negro y dorado alrededor del c
 
 ## Incluye
 
-- Eclipse y partículas animados sin librerías pesadas.
+- Logo oficial original sin modificaciones, acompañado por halo, órbitas y partículas animadas sin librerías pesadas.
 - Diseño responsive para móvil, tablet y escritorio.
 - Accesibilidad: navegación por teclado, enlace de salto, contraste y soporte para movimiento reducido.
 - SEO, Open Graph, Twitter Card, favicon y URL canónica.
-- Recursos SVG ligeros y escalables.
+- Logo oficial PNG y recursos SVG ligeros.
 
 ## Ejecutar localmente
 
@@ -22,6 +22,4 @@ En el repositorio, ve a **Settings → Pages**, selecciona **Deploy from a branc
 
 ## Personalización
 
-Los colores principales están definidos como variables al comienzo de `styles.css`. La imagen social se encuentra en `assets/og-image.svg` y el favicon en `assets/favicon.svg`.
-
-> Nota: algunas plataformas sociales prefieren PNG/JPG para la vista previa. Para máxima compatibilidad, exporta `assets/og-image.svg` a `assets/og-image.png` (1200 × 630) y actualiza las dos referencias en `index.html`.
+Los colores principales están definidos como variables al comienzo de `styles.css`. La imagen social y el logo mostrado se encuentran en `assets/nox-logo.png`; el favicon está en `assets/favicon.svg`.
