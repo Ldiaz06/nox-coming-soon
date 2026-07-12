@@ -22,7 +22,7 @@ En el repositorio, ve a **Settings → Pages**, selecciona **Deploy from a branc
 
 `https://ldiaz06.github.io/nox-coming-soon/`
 
-Activa también **Enforce HTTPS** en **Settings → Pages** y comparte siempre la dirección que comienza con `https://`. La página incluye una política `upgrade-insecure-requests` para evitar contenido mixto.
+Activa también **Enforce HTTPS** en **Settings → Pages** y comparte siempre la dirección que comienza con `https://`.
 
 ## Personalización
 
