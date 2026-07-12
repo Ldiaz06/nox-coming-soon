@@ -24,4 +24,4 @@ En el repositorio, ve a **Settings → Pages**, selecciona **Deploy from a branc
 
 ## Personalización
 
-Los colores principales están definidos como variables al comienzo de `styles.css`. El logo transparente mostrado se encuentra en `assets/nox-logo-transparent.png`; la imagen social original está en `assets/nox-logo.png` y el favicon en `assets/favicon.svg`.
+Los colores principales están definidos como variables al comienzo de `styles.css`. El logo transparente mostrado se encuentra en `assets/nox-logo-transparent.png`; la imagen social original está en `assets/nox-logo.png` y el favicon usa el isotipo de las dos “O” entrelazadas en `assets/favicon.svg`.

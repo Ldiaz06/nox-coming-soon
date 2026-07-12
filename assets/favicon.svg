@@ -1,1 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#050505"/><circle cx="32" cy="25" r="14" fill="none" stroke="#d6b660" stroke-width="2"/><circle cx="28" cy="23" r="13" fill="#050505"/><text x="32" y="52" text-anchor="middle" font-family="Georgia,serif" font-size="13" letter-spacing="2" fill="#e7cf82">N</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Isotipo NOX">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9b7129"/>
+      <stop offset="0.42" stop-color="#f0d47b"/>
+      <stop offset="0.7" stop-color="#c49a45"/>
+      <stop offset="1" stop-color="#f3dd91"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#050505"/>
+  <g fill="none" stroke="url(#gold)" stroke-width="2.25">
+    <circle cx="23.5" cy="32" r="18"/>
+    <circle cx="40.5" cy="32" r="18"/>
+  </g>
+</svg>
