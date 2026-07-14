@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d0d0d">
+  <meta name="description" content="Menú de NOX Panamá: coctelería de autor, clásicos, destilados y bocados nocturnos.">
+  <link rel="canonical" href="https://noxpanama.com/Menu/">
+  <title>Menú — NOX Panamá</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css?v=20260714-1">
+</head>
+<body>
+  <a class="skip-link" href="#menu">Ir al menú</a>
+  <div class="grain" aria-hidden="true"></div>
+
+  <main class="menu-card" id="menu">
+    <header class="menu-header">
+      <a class="back" href="../" aria-label="Volver a la página principal de NOX">← <span>Volver</span></a>
+      <p class="eyebrow" id="eyebrow">The Celestial Eclipse</p>
+      <a class="brand" href="../" aria-label="NOX, página principal">
+        <img src="../assets/nox-logo-transparent.png" alt="NOX — The Night Must Go On" width="789" height="500">
+      </a>
+      <div class="ornament" aria-hidden="true">✦</div>
+      <p class="menu-label">Menu</p>
+    </header>
+
+    <div class="menu-content" id="menu-content" aria-live="polite">
+      <p class="loading">Revelando el menú…</p>
+    </div>
+
+    <footer class="menu-footer">
+      <div class="ornament" aria-hidden="true">✦</div>
+      <p><span id="tagline">The Night Must Go On</span><span aria-hidden="true"> | </span><span id="location">Panamá</span></p>
+      <a href="../">noxpanama</a>
+    </footer>
+  </main>
+
+  <template id="section-template">
+    <section class="menu-section">
+      <div class="section-heading"><h2></h2><span aria-hidden="true"></span></div>
+      <div class="items"></div>
+    </section>
+  </template>
+
+  <template id="item-template">
+    <article class="menu-item">
+      <div class="item-line">
+        <h3></h3>
+        <span class="dots" aria-hidden="true"></span>
+        <data class="price"></data>
+      </div>
+      <p class="description"></p>
+    </article>
+  </template>
+
+  <noscript><p class="error">Activa JavaScript para consultar el menú.</p></noscript>
+  <script src="./script.js?v=20260714-1" defer></script>
+</body>
+</html>

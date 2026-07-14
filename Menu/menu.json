@@ -1,0 +1,66 @@
+{
+  "brand": "NOX",
+  "eyebrow": "The Celestial Eclipse",
+  "tagline": "The Night Must Go On",
+  "location": "Panamá",
+  "currency": "USD",
+  "currencyDisplay": "hidden",
+  "sections": [
+    {
+      "id": "signatures",
+      "title": "Signatures",
+      "items": [
+        {
+          "name": "NOX",
+          "subtitle": "The Eclipse",
+          "description": "Single Malt, carbón activado, vermut rosso, bitter de cacao, ahumado con madera de nogal.",
+          "price": 22
+        },
+        {
+          "name": "The Secret",
+          "subtitle": "The Hidden Door",
+          "description": "Ginebra premium, licor de flor de saúco, tónica de lavanda, esencia de bergamota.",
+          "price": 18
+        },
+        {
+          "name": "Midnight Velvet",
+          "description": "Vodka ultra-premium, café Geisha clarificado, reducción de higos, espuma de vainilla.",
+          "price": 20
+        },
+        {
+          "name": "Crescent Moon",
+          "description": "Tequila reposado, mezcal, cordial de mandarina y jengibre, borde de sal de oro.",
+          "price": 22
+        }
+      ]
+    },
+    {
+      "id": "essentials",
+      "title": "The Essentials",
+      "items": [
+        { "name": "Negroni Obscuro", "price": 16 },
+        { "name": "Old Fashioned Reserva", "price": 18 },
+        { "name": "Dry Martini", "subtitle": "Vodka / Gin", "price": 16 }
+      ]
+    },
+    {
+      "id": "spirits",
+      "title": "The Curated Spirits",
+      "items": [
+        { "name": "Macallan 15 Yrs", "price": 28 },
+        { "name": "Don Julio 1942", "price": 35 },
+        { "name": "Hibiki Harmony", "price": 30 },
+        { "name": "Abuelo Centuria", "price": 25 }
+      ]
+    },
+    {
+      "id": "bites",
+      "title": "Night Bites",
+      "items": [
+        { "name": "Tarta de Atún & Trufa Negra", "price": 24 },
+        { "name": "Ibérico de Bellota & Quesos Curados", "price": 32 },
+        { "name": "Bombones de Chocolate al Single Malt", "price": 14 }
+      ]
+    }
+  ]
+}
