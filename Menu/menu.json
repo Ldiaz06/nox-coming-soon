@@ -86,7 +86,7 @@
         {
           "id": "national-beers",
           "title": "Cervezas Nacionales",
-          "serving": "Promoción del mes · Unidad",
+          "serving": "Unidad",
           "items": [
             { "name": "Balboa", "price": 1.75, "promotion": true },
             { "name": "Balboa Dorada", "price": 1.5, "promotion": true },

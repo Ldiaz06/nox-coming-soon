@@ -31,6 +31,10 @@
           title.append(subtitle);
         }
 
+        const promoTag = itemNode.querySelector('.promo-tag');
+        if (item.promotion) promoTag.hidden = false;
+        else promoTag.remove();
+
         const price = itemNode.querySelector('.price');
         const formattedPrice = Number.isInteger(item.price) ? String(item.price) : item.price.toFixed(2);
         price.value = item.price;
