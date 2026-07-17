@@ -8,7 +8,7 @@
   <link rel="canonical" href="https://noxpanama.com/Menu/">
   <title>Menú — NOX Panamá</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=20260714-1">
+  <link rel="stylesheet" href="./styles.css?v=20260717-1">
 </head>
 <body>
   <a class="skip-link" href="#menu">Ir al menú</a>
@@ -25,6 +25,9 @@
       <p class="menu-label">Menu</p>
     </header>
 
+    <nav class="menu-switcher" id="menu-switcher" aria-label="Seleccionar tipo de menú"></nav>
+    <p class="menu-intro" id="menu-intro"></p>
+
     <div class="menu-content" id="menu-content" aria-live="polite">
       <p class="loading">Revelando el menú…</p>
     </div>
@@ -38,7 +41,7 @@
 
   <template id="section-template">
     <section class="menu-section">
-      <div class="section-heading"><h2></h2><span aria-hidden="true"></span></div>
+      <div class="section-heading"><h2></h2><span aria-hidden="true"></span><small></small></div>
       <div class="items"></div>
     </section>
   </template>
@@ -55,6 +58,6 @@
   </template>
 
   <noscript><p class="error">Activa JavaScript para consultar el menú.</p></noscript>
-  <script src="./script.js?v=20260714-1" defer></script>
+  <script src="./script.js?v=20260717-1" defer></script>
 </body>
 </html>
