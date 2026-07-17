@@ -32,9 +32,10 @@
         }
 
         const price = itemNode.querySelector('.price');
+        const formattedPrice = Number.isInteger(item.price) ? String(item.price) : item.price.toFixed(2);
         price.value = item.price;
-        price.textContent = item.price;
-        price.setAttribute('aria-label', `${item.price} dólares`);
+        price.textContent = formattedPrice;
+        price.setAttribute('aria-label', `${formattedPrice} dólares`);
 
         const description = itemNode.querySelector('.description');
         if (item.description) description.textContent = item.description;

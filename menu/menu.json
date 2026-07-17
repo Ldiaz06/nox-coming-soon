@@ -86,12 +86,13 @@
         {
           "id": "national-beers",
           "title": "Cervezas Nacionales",
-          "serving": "Unidad",
+          "serving": "Promoción del mes · Unidad",
           "items": [
-            { "name": "Balboa", "price": 4 },
-            { "name": "Atlas Golden Light", "price": 4 },
-            { "name": "Panamá Lager", "price": 4 },
-            { "name": "Panamá Light", "price": 4 }
+            { "name": "Balboa", "price": 1.75, "promotion": true },
+            { "name": "Balboa Dorada", "price": 1.5, "promotion": true },
+            { "name": "Atlas Golden Light", "price": 1.5, "promotion": true },
+            { "name": "Panamá Lager", "price": 1.5, "promotion": true },
+            { "name": "Panamá Light", "price": 1.5, "promotion": true }
           ]
         },
         {
