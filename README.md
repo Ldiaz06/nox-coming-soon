@@ -8,6 +8,7 @@ Landing page estática para **NOX**, diseñada en negro y dorado alrededor del c
 - Órbitas animadas alineadas con las dos “O” entrelazadas del logotipo.
 - Enlaces oficiales de Instagram y TikTok: `@NoxPanama`.
 - Menú digital disponible directamente en `/Menu/` y `/menu/`, alimentado por el archivo editable `Menu/menu.json`, con selector entre “VIP Premium” y “Clásicos & Cervezas”.
+- SEO local para NOX Panamá con metadatos sociales, JSON-LD, `robots.txt`, sitemap XML y rutas canónicas.
 - Diseño responsive para móvil, tablet y escritorio.
 - Accesibilidad: navegación por teclado, enlace de salto, contraste y soporte para movimiento reducido.
 - SEO, Open Graph, Twitter Card, favicon y URL canónica.
