@@ -11,6 +11,7 @@ Landing page estática para **NOX**, diseñada en negro y dorado alrededor del c
 - SEO local para NOX Panamá con metadatos sociales, JSON-LD, `robots.txt`, sitemap XML y rutas canónicas.
 - Promoción mensual de cervezas nacionales configurada en `Menu/menu.json`.
 - El menú abre por defecto en “Clásicos & Cervezas” y la portada enlaza la ubicación verificada de NOX en Calle 67 Este, Ciudad de Panamá, directamente con Google Maps.
+- Mapa integrado en la portada y accesos directos para abrir la ubicación en Google Maps o Waze.
 - Diseño responsive para móvil, tablet y escritorio.
 - Accesibilidad: navegación por teclado, enlace de salto, contraste y soporte para movimiento reducido.
 - SEO, Open Graph, Twitter Card, favicon y URL canónica.

@@ -25,7 +25,7 @@
   <meta name="twitter:image" content="https://noxpanama.com/assets/nox-logo.png">
   <title>NOX Panamá | Bar, club nocturno y after-hours</title>
   <link rel="icon" href="./assets/favicon.svg?v=20260711-2" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=20260717-5">
+  <link rel="stylesheet" href="./styles.css?v=20260717-6">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -93,14 +93,36 @@
         </a>
       </nav>
 
-      <a class="location reveal" href="https://share.google/hUJLzzfV0WExOkNGM" target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar a NOX Panamá en Calle 67 Este con Google Maps">
-        <span class="location-mark" aria-hidden="true">⌖</span>
-        <address>
-          <small>Ubicación</small>
-          <strong>Calle 67 Este, Panamá</strong>
-          <span>Cómo llegar <span aria-hidden="true">→</span></span>
-        </address>
-      </a>
+      <section class="location-card reveal" aria-labelledby="location-title">
+        <div class="location-summary">
+          <span class="location-mark" aria-hidden="true">⌖</span>
+          <address>
+            <small id="location-title">Ubicación</small>
+            <strong>Calle 67 Este, Panamá</strong>
+          </address>
+        </div>
+
+        <div class="location-actions" aria-label="Opciones para llegar a NOX Panamá">
+          <a href="https://share.google/hUJLzzfV0WExOkNGM" target="_blank" rel="noopener noreferrer" aria-label="Abrir la ubicación de NOX Panamá en Google Maps">
+            <span class="map-button-icon" aria-hidden="true">⌖</span>
+            <span>Google Maps</span>
+          </a>
+          <a class="waze-link" href="https://waze.com/ul/hd1x7ntm0p" target="_blank" rel="noopener noreferrer" aria-label="Abrir la ubicación de NOX Panamá en Waze">
+            <img src="https://cdn.simpleicons.org/waze/33CCFF" width="18" height="18" alt="" aria-hidden="true">
+            <span>Waze</span>
+          </a>
+        </div>
+
+        <div class="map-frame">
+          <iframe
+            title="Mapa de NOX Panamá en Calle 67 Este"
+            src="https://www.google.com/maps?q=NOX%20Panama%2C%20Calle%2067%20Este%2C%20Ciudad%20de%20Panam%C3%A1&output=embed"
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+            allowfullscreen>
+          </iframe>
+        </div>
+      </section>
     </section>
 
     <footer>
