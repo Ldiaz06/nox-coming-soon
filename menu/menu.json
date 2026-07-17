@@ -5,6 +5,7 @@
   "location": "Panamá",
   "currency": "USD",
   "currencyDisplay": "hidden",
+  "defaultMenu": "classic",
   "menus": [
     {
       "id": "vip",
@@ -88,7 +89,7 @@
           "title": "Cervezas Nacionales",
           "serving": "Unidad",
           "items": [
-            { "name": "Balboa", "price": 1.75, "promotion": true },
+            { "name": "Balboa", "price": 1.75 },
             { "name": "Balboa Dorada", "price": 1.5, "promotion": true },
             { "name": "Atlas Golden Light", "price": 1.5, "promotion": true },
             { "name": "Panamá Lager", "price": 1.5, "promotion": true },

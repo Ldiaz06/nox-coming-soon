@@ -73,7 +73,9 @@
     });
 
     const requested = location.hash.slice(1);
-    const selectedIndex = Math.max(0, menu.menus.findIndex((item) => item.id === requested));
+    const requestedIndex = menu.menus.findIndex((item) => item.id === requested);
+    const defaultIndex = Math.max(0, menu.menus.findIndex((item) => item.id === menu.defaultMenu));
+    const selectedIndex = requestedIndex >= 0 ? requestedIndex : defaultIndex;
     const buttons = switcher.querySelectorAll('button');
     buttons.forEach((button, index) => button.setAttribute('aria-selected', index === selectedIndex ? 'true' : 'false'));
     renderSections(menu.menus[selectedIndex]);
