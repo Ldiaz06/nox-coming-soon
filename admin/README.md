@@ -1,73 +1,193 @@
-# NOX Control
+# NOX Control — PHP, Apache y MySQL
 
-Aplicación privada de administración para NOX Panamá. Incluye autenticación, permisos por rol, inventario, POS, cierres de caja, reportes, asistencia y planilla sobre MySQL 8.4.
+Aplicación privada de administración para NOX Panamá. Funciona con **PHP 8.2 o superior**, **Apache 2.4** y **MySQL 8.4**. No usa Node.js, npm ni Composer.
 
-## Roles
+## Funciones
+
+- Roles: administrador, supervisor y cajero.
+- POS conectado a recetas y existencias.
+- Compras, costos promedio, ajustes, mermas y conteos.
+- Apertura y cierre de caja con efectivo esperado y diferencias.
+- Pagos registrados como efectivo, tarjeta o Yappy.
+- Reportes diarios, quincenales y mensuales.
+- Marcación y aprobación de horas.
+- Planilla quincenal o mensual con horas extra, bonos y deducciones.
+- Auditoría de usuarios, ventas, inventario, cajas y planilla.
+
+## Permisos
 
 | Módulo | Administrador | Supervisor | Cajero |
 |---|---:|---:|---:|
-| POS y ventas | Sí | Sí | Sí, en su propia caja |
-| Apertura y cierre | Sí | Sí | Sí, en su propia caja |
-| Inventario, recetas y compras | Sí | Sí | No |
+| POS | Sí | Sí | Propia caja |
+| Apertura y cierre | Sí | Sí | Propia caja |
+| Inventario y compras | Sí | Sí | No |
 | Reportes | Sí | Sí | No |
-| Marcación de entrada y salida | Sí | Sí | Sí |
+| Marcación personal | Sí | Sí | Sí |
 | Aprobación de horas | Sí | Sí | No |
 | Planilla | Sí | No | No |
-| Usuarios y roles | Sí | No | No |
+| Usuarios | Sí | No | No |
 
-Los permisos se validan en el servidor; ocultar una opción en la interfaz no concede ni retira autorización.
+Los permisos se comprueban en PHP en cada solicitud. La interfaz por sí sola nunca concede autorización.
 
-## Flujo del POS e inventario
+## Requisitos del servidor
 
-Cada producto del POS tiene una receta compuesta por uno o más artículos de inventario. Al completar una venta, el servidor:
+- Apache 2.4 con `mod_rewrite`.
+- PHP 8.2+ con `pdo_mysql` y `mbstring`.
+- MySQL 8.0+; recomendado 8.4.
+- HTTPS obligatorio para producción.
+- Un subdominio, recomendado: `admin.noxpanama.com`.
 
-1. bloquea la caja, productos y existencias involucradas;
-2. recalcula precios, impuestos y total en el servidor;
-3. verifica el pago y la disponibilidad;
-4. registra venta, líneas y pagos;
-5. descuenta todos los componentes de inventario;
-6. escribe el movimiento y la auditoría;
-7. confirma todo en una sola transacción MySQL.
+En Ubuntu o Debian:
 
-Si cualquier operación falla, la transacción completa se revierte.
+```bash
+sudo apt update
+sudo apt install apache2 mysql-client php php-mysql php-mbstring libapache2-mod-php certbot python3-certbot-apache
+sudo a2enmod rewrite ssl headers
+```
 
-## Puesta en marcha local
+Si el servidor utiliza PHP-FPM en lugar de `libapache2-mod-php`, configure el manejador FPM correspondiente antes de continuar.
 
-Requisitos: Node.js 20 o superior y MySQL 8.4.
+## 1. Crear el subdominio
 
-1. Copia `.env.example` como `.env` y reemplaza todas las claves.
-2. Ejecuta `db/schema.sql` en la base de datos MySQL.
-3. Instala las dependencias con `pnpm install` o `npm install`.
-4. Crea la cuenta inicial con `pnpm seed:admin`.
-5. Inicia la aplicación con `pnpm start`.
+En el proveedor DNS cree un registro `A`:
 
-Para desarrollo también se incluye `docker-compose.yml`, que inicia MySQL y la aplicación. Antes de usarlo fuera de una computadora local deben reemplazarse todas las claves incluidas como ejemplo.
+```text
+Nombre: admin
+Destino: IP pública del servidor Apache
+```
 
-## Variables importantes
+Espere a que `admin.noxpanama.com` resuelva hacia el servidor.
 
-- `APP_ORIGIN`: dirección exacta del panel, por ejemplo `https://admin.noxpanama.com`.
-- `JWT_SECRET`: secreto aleatorio de al menos 48 caracteres.
-- `COOKIE_SECURE`: debe ser `true` en producción.
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`: conexión MySQL.
+## 2. Copiar la aplicación
 
-El usuario MySQL de producción debe limitarse a esta base de datos. No se debe usar `root`.
+Copie únicamente la carpeta `admin` del repositorio:
 
-## Planilla
+```bash
+sudo mkdir -p /var/www/nox-admin
+sudo cp -R admin/. /var/www/nox-admin/
+sudo chown -R root:www-data /var/www/nox-admin
+sudo find /var/www/nox-admin -type d -exec chmod 750 {} \;
+sudo find /var/www/nox-admin -type f -exec chmod 640 {} \;
+```
 
-El cálculo usa horas aprobadas, tarifa por hora o salario mensual, multiplicador de horas extra, bonos y deducciones manuales. Los topes iniciales son configurables en el código: 80 horas por quincena y 160 por mes.
+Apache debe usar como raíz pública exactamente:
 
-Esta primera versión no aplica automáticamente deducciones legales de Panamá. Esas reglas deben configurarse y validarse con el contador o responsable de planilla antes de emitir pagos oficiales.
+```text
+/var/www/nox-admin/public
+```
 
-## Publicación
+Nunca utilice `/var/www/nox-admin` como `DocumentRoot`; de lo contrario podría exponer configuración o archivos SQL.
 
-La aplicación requiere un servicio compatible con Node.js y acceso privado a MySQL. La recomendación es publicarla como `admin.noxpanama.com`, detrás de HTTPS, sin enlazarla desde la portada pública. GitHub Pages solamente puede seguir alojando la landing y el menú; no puede ejecutar esta aplicación administrativa.
+## 3. Crear MySQL
 
-Antes de producción:
+Entre a MySQL como administrador:
 
-- usar MySQL administrado con copias de seguridad automáticas;
-- activar HTTPS y `COOKIE_SECURE=true`;
-- crear secretos únicos;
-- restringir la base de datos por red;
-- comprobar restauración de respaldos;
-- crear cuentas individuales, nunca compartidas;
-- revisar usuarios, auditoría y cierres periódicamente.
+```bash
+sudo mysql
+```
+
+Cree la base y un usuario exclusivo. Reemplace la contraseña:
+
+```sql
+CREATE DATABASE IF NOT EXISTS nox_admin CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE USER 'nox_app'@'localhost' IDENTIFIED BY 'UNA_CLAVE_LARGA_Y_UNICA';
+GRANT SELECT, INSERT, UPDATE, DELETE ON nox_admin.* TO 'nox_app'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+Importe el esquema con una cuenta que pueda crear tablas:
+
+```bash
+sudo mysql nox_admin < /var/www/nox-admin/db/schema.sql
+```
+
+El usuario web `nox_app` no necesita permisos para crear o eliminar tablas.
+
+## 4. Configurar secretos
+
+Copie el ejemplo fuera del directorio público:
+
+```bash
+sudo cp /var/www/nox-admin/apache/nox-admin-env.conf.example /etc/apache2/nox-admin-env.conf
+sudo chown root:www-data /etc/apache2/nox-admin-env.conf
+sudo chmod 640 /etc/apache2/nox-admin-env.conf
+sudo nano /etc/apache2/nox-admin-env.conf
+```
+
+Cambie obligatoriamente `DB_PASSWORD` y las credenciales iniciales. No suba este archivo con las claves reales a GitHub.
+
+## 5. Configurar Apache
+
+Instale el VirtualHost incluido:
+
+```bash
+sudo cp /var/www/nox-admin/apache/nox-admin.conf.example /etc/apache2/sites-available/nox-admin.conf
+sudo a2ensite nox-admin.conf
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+El resultado de `apache2ctl configtest` debe ser `Syntax OK`.
+
+## 6. Crear el primer administrador
+
+Las variables `SetEnv` de Apache no existen automáticamente en la terminal. Ejecute el script pasando las variables de forma temporal:
+
+```bash
+sudo -u www-data env \
+  DB_HOST=127.0.0.1 \
+  DB_PORT=3306 \
+  DB_NAME=nox_admin \
+  DB_USER=nox_app \
+  DB_PASSWORD='UNA_CLAVE_LARGA_Y_UNICA' \
+  INITIAL_ADMIN_EMAIL='admin@noxpanama.com' \
+  INITIAL_ADMIN_PASSWORD='UNA_CLAVE_INICIAL_DE_12_CARACTERES' \
+  INITIAL_ADMIN_NAME='Administrador NOX' \
+  php /var/www/nox-admin/scripts/create-admin.php
+```
+
+Después de ingresar, cree cuentas individuales para cada trabajador. No comparta la cuenta del administrador.
+
+## 7. Activar HTTPS
+
+Cuando el DNS ya apunte al servidor:
+
+```bash
+sudo certbot --apache -d admin.noxpanama.com
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+Compruebe que `https://admin.noxpanama.com/api/health` devuelva:
+
+```json
+{"ok":true,"service":"nox-admin-php"}
+```
+
+Después abra `https://admin.noxpanama.com` e inicie sesión.
+
+## Actualizaciones futuras
+
+Antes de reemplazar archivos:
+
+1. haga una copia de seguridad de MySQL;
+2. copie la versión nueva a una carpeta temporal;
+3. compare y aplique cambios de `db/schema.sql`;
+4. reemplace `app/` y `public/`;
+5. conserve `/etc/apache2/nox-admin-env.conf`;
+6. ejecute `apache2ctl configtest` y recargue Apache.
+
+## Seguridad y respaldos
+
+- Mantenga `COOKIE_SECURE=true`.
+- No use el usuario `root` de MySQL en la aplicación.
+- Restrinja MySQL a `localhost` cuando esté en el mismo servidor.
+- Haga respaldos automáticos diarios y pruebe su restauración.
+- Proteja `/etc/apache2/nox-admin-env.conf` con permisos `640`.
+- Mantenga PHP, Apache y MySQL actualizados.
+- Revise periódicamente cierres, usuarios y auditoría.
+
+## Nota sobre planilla
+
+La planilla calcula horas aprobadas, tarifa por hora o salario mensual, horas extra, bonos y deducciones manuales. Las deducciones legales automáticas de Panamá deben validarse con el contador o responsable de planilla antes de emitir pagos oficiales.

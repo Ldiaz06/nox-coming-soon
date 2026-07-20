@@ -18,6 +18,15 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY users_email_uq (email)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ip_address VARCHAR(64) NOT NULL,
+  email VARCHAR(190) NOT NULL,
+  attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY login_attempts_lookup_idx (ip_address, email, attempted_at)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS employees (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NULL,

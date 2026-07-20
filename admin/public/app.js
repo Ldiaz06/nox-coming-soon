@@ -1,5 +1,6 @@
 const state = {
   user: null,
+  csrf: null,
   section: "dashboard",
   products: [],
   inventory: [],
@@ -32,10 +33,14 @@ function toast(message, error = false) {
 }
 
 async function api(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const headers = { ...(options.headers || {}) };
+  if (options.body) headers["Content-Type"] = "application/json";
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.csrf) headers["X-CSRF-Token"] = state.csrf;
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: options.body ? { "Content-Type": "application/json", ...(options.headers || {}) } : options.headers,
-    ...options
+    ...options,
+    headers
   });
   if (response.status === 401) {
     showLogin();
@@ -50,13 +55,15 @@ async function api(path, options = {}) {
 
 function showLogin() {
   state.user = null;
+  state.csrf = null;
   $("#app-view").hidden = true;
   $("#login-view").hidden = false;
   clearInterval(state.clockTimer);
 }
 
-function showApp(user) {
+function showApp(user, csrf = state.csrf) {
   state.user = user;
+  state.csrf = csrf;
   $("#login-view").hidden = true;
   $("#app-view").hidden = false;
   $("#user-name").textContent = user.fullName;
@@ -73,8 +80,8 @@ async function initialize() {
   $("#hours-filter [name=end]").value = today;
   $("#hours-filter [name=start]").value = `${today.slice(0, 8)}01`;
   try {
-    const { user } = await api("/api/auth/me");
-    showApp(user);
+    const { user, csrf } = await api("/api/auth/me");
+    showApp(user, csrf);
   } catch {
     showLogin();
   }
@@ -339,9 +346,9 @@ $("#login-form").addEventListener("submit", async (event) => {
   const values = formValues(event.currentTarget);
   $("#login-error").textContent = "";
   try {
-    const { user } = await api("/api/auth/login", { method: "POST", body: JSON.stringify(values) });
+    const { user, csrf } = await api("/api/auth/login", { method: "POST", body: JSON.stringify(values) });
     event.currentTarget.reset();
-    showApp(user);
+    showApp(user, csrf);
   } catch (error) { $("#login-error").textContent = error.message; }
 });
 

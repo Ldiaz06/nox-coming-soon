@@ -1,0 +1,27 @@
+<VirtualHost *:80>
+    ServerName admin.noxpanama.com
+    DocumentRoot /var/www/nox-admin/public
+
+    <Directory /var/www/nox-admin/public>
+        Options -Indexes
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/nox-admin/app>
+        Require all denied
+    </Directory>
+
+    <Directory /var/www/nox-admin/db>
+        Require all denied
+    </Directory>
+
+    IncludeOptional /etc/apache2/nox-admin-env.conf
+
+    ErrorLog ${APACHE_LOG_DIR}/nox-admin-error.log
+    CustomLog ${APACHE_LOG_DIR}/nox-admin-access.log combined
+
+    RewriteEngine On
+    RewriteCond %{SERVER_NAME} =admin.noxpanama.com
+    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>
