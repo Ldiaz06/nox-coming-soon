@@ -2,6 +2,8 @@
 
 Landing page estática para **NOX**, diseñada en negro y dorado alrededor del concepto *The Celestial Eclipse*.
 
+El repositorio también incluye `admin/`, una aplicación privada independiente para administrar ventas, inventario, cajas, reportes, personal y planilla sobre MySQL. Esta aplicación requiere un servidor Node.js y no se publica mediante GitHub Pages.
+
 ## Incluye
 
 - Logo oficial original sin modificaciones, acompañado por halo, órbitas y partículas animadas sin librerías pesadas.
