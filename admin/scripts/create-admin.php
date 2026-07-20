@@ -6,11 +6,12 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+require_once dirname(__DIR__) . '/app/config.php';
 require_once dirname(__DIR__) . '/app/db.php';
 
-$email = strtolower(trim((string) getenv('INITIAL_ADMIN_EMAIL')));
-$password = (string) getenv('INITIAL_ADMIN_PASSWORD');
-$name = trim((string) (getenv('INITIAL_ADMIN_NAME') ?: 'Administrador NOX'));
+$email = strtolower(trim((string) nox_config_value('initial_admin.email', '')));
+$password = (string) nox_config_value('initial_admin.password', '');
+$name = trim((string) nox_config_value('initial_admin.name', 'Administrador NOX'));
 
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     throw new RuntimeException('INITIAL_ADMIN_EMAIL no es válido.');

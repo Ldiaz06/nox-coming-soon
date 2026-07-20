@@ -1,165 +1,185 @@
-# NOX Control — PHP, Apache y MySQL
+# NOX Control — despliegue en CentOS/cPanel
 
-Aplicación privada de administración para NOX Panamá. Funciona con **PHP 8.2 o superior**, **Apache 2.4** y **MySQL 8.4**. No usa Node.js, npm ni Composer.
+Aplicación privada de administración para NOX Panamá. Funciona con PHP 8.2+, Apache 2.4 y MySQL 8.0+. No usa Node.js, npm ni Composer.
 
-## Funciones
-
-- Roles: administrador, supervisor y cajero.
-- POS conectado a recetas y existencias.
-- Compras, costos promedio, ajustes, mermas y conteos.
-- Apertura y cierre de caja con efectivo esperado y diferencias.
-- Pagos registrados como efectivo, tarjeta o Yappy.
-- Reportes diarios, quincenales y mensuales.
-- Marcación y aprobación de horas.
-- Planilla quincenal o mensual con horas extra, bonos y deducciones.
-- Auditoría de usuarios, ventas, inventario, cajas y planilla.
-
-## Permisos
-
-| Módulo | Administrador | Supervisor | Cajero |
-|---|---:|---:|---:|
-| POS | Sí | Sí | Propia caja |
-| Apertura y cierre | Sí | Sí | Propia caja |
-| Inventario y compras | Sí | Sí | No |
-| Reportes | Sí | Sí | No |
-| Marcación personal | Sí | Sí | Sí |
-| Aprobación de horas | Sí | Sí | No |
-| Planilla | Sí | No | No |
-| Usuarios | Sí | No | No |
-
-Los permisos se comprueban en PHP en cada solicitud. La interfaz por sí sola nunca concede autorización.
-
-## Requisitos del servidor
-
-- Apache 2.4 con `mod_rewrite`.
-- PHP 8.2+ con `pdo_mysql` y `mbstring`.
-- MySQL 8.0+; recomendado 8.4.
-- HTTPS obligatorio para producción.
-- Un subdominio, recomendado: `admin.noxpanama.com`.
-
-En Ubuntu o Debian:
-
-```bash
-sudo apt update
-sudo apt install apache2 mysql-client php php-mysql php-mbstring libapache2-mod-php certbot python3-certbot-apache
-sudo a2enmod rewrite ssl headers
-```
-
-Si el servidor utiliza PHP-FPM en lugar de `libapache2-mod-php`, configure el manejador FPM correspondiente antes de continuar.
-
-## 1. Crear el subdominio
-
-En el proveedor DNS cree un registro `A`:
+La carpeta pública del sitio principal es:
 
 ```text
-Nombre: admin
-Destino: IP pública del servidor Apache
+/home/noxpa/public_html
 ```
 
-Espere a que `admin.noxpanama.com` resuelva hacia el servidor.
-
-## 2. Copiar la aplicación
-
-Copie únicamente la carpeta `admin` del repositorio:
-
-```bash
-sudo mkdir -p /var/www/nox-admin
-sudo cp -R admin/. /var/www/nox-admin/
-sudo chown -R root:www-data /var/www/nox-admin
-sudo find /var/www/nox-admin -type d -exec chmod 750 {} \;
-sudo find /var/www/nox-admin -type f -exec chmod 640 {} \;
-```
-
-Apache debe usar como raíz pública exactamente:
+La aplicación administrativa queda en:
 
 ```text
-/var/www/nox-admin/public
+/home/noxpa/public_html/admin
 ```
 
-Nunca utilice `/var/www/nox-admin` como `DocumentRoot`; de lo contrario podría exponer configuración o archivos SQL.
+El subdominio debe publicar **únicamente** esta carpeta:
 
-## 3. Crear MySQL
+```text
+/home/noxpa/public_html/admin/public
+```
 
-Entre a MySQL como administrador:
+Nunca configure `/home/noxpa/public_html/admin` como raíz pública del subdominio.
+
+## Funciones y roles
+
+- Administrador: acceso total, usuarios, inventario, POS, reportes, horas y planilla.
+- Supervisor: POS, inventario, cajas, reportes y aprobación de horas.
+- Cajero: POS, su propia caja y marcación personal.
+- Inventario conectado a recetas y ventas.
+- Cierres diarios, reportes quincenales y mensuales.
+- Compras, ajustes, mermas, conteos, horas y planilla.
+
+## 1. Comprobar PHP
+
+En **cPanel > MultiPHP Manager**, asigne PHP 8.2 o una versión posterior a `admin.noxpanama.com`.
+
+En **cPanel > Select PHP Version** o desde WHM, confirme que estén activos:
+
+- `pdo`
+- `pdo_mysql`
+- `mbstring`
+- `session`
+- `json`
+
+Si dispone de Terminal o SSH:
 
 ```bash
-sudo mysql
+php -v
+php -m | grep -E 'PDO|pdo_mysql|mbstring|session|json'
 ```
 
-Cree la base y un usuario exclusivo. Reemplace la contraseña:
+## 2. Crear el subdominio administrativo
 
-```sql
-CREATE DATABASE IF NOT EXISTS nox_admin CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE USER 'nox_app'@'localhost' IDENTIFIED BY 'UNA_CLAVE_LARGA_Y_UNICA';
-GRANT SELECT, INSERT, UPDATE, DELETE ON nox_admin.* TO 'nox_app'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
+En **cPanel > Domains**, cree el subdominio. Si la interfaz solicita una ruta relativa al directorio de la cuenta, escriba `public_html/admin/public`; el resultado final debe ser:
+
+```text
+Dominio: admin.noxpanama.com
+Document Root: /home/noxpa/public_html/admin/public
 ```
 
-Importe el esquema con una cuenta que pueda crear tablas:
+Si el DNS se administra fuera de cPanel, cree también un registro `A` para `admin` apuntando a la IP del servidor.
+
+No es necesario editar manualmente el VirtualHost cuando cPanel administra Apache. El archivo `apache/nox-admin.conf.example` se incluye solo para servidores CentOS administrados directamente como `root`.
+
+## 3. Crear la base MySQL en cPanel
+
+En **cPanel > MySQL Databases**:
+
+1. cree una base llamada `nox_admin`;
+2. cree un usuario llamado `nox_app` con una contraseña larga y única;
+3. agregue ese usuario a la base y marque **ALL PRIVILEGES**.
+
+cPanel suele agregar el prefijo de la cuenta. Los nombres finales pueden ser:
+
+```text
+Base: noxpa_nox_admin
+Usuario: noxpa_nox_app
+```
+
+Use siempre los nombres finales que muestre cPanel.
+
+En **phpMyAdmin** seleccione esa base e importe:
+
+```text
+/home/noxpa/public_html/admin/db/schema.sql
+```
+
+El esquema crea únicamente las tablas dentro de la base seleccionada; no intenta crear otra base ni cambiarla.
+
+También puede importarlo desde Terminal, reemplazando el usuario si cPanel asignó otro nombre:
 
 ```bash
-sudo mysql nox_admin < /var/www/nox-admin/db/schema.sql
+mysql -u noxpa_nox_app -p noxpa_nox_admin < /home/noxpa/public_html/admin/db/schema.sql
 ```
 
-El usuario web `nox_app` no necesita permisos para crear o eliminar tablas.
+## 4. Crear la configuración privada
 
-## 4. Configurar secretos
-
-Copie el ejemplo fuera del directorio público:
+La contraseña de MySQL debe quedar fuera de `public_html`:
 
 ```bash
-sudo cp /var/www/nox-admin/apache/nox-admin-env.conf.example /etc/apache2/nox-admin-env.conf
-sudo chown root:www-data /etc/apache2/nox-admin-env.conf
-sudo chmod 640 /etc/apache2/nox-admin-env.conf
-sudo nano /etc/apache2/nox-admin-env.conf
+cp /home/noxpa/public_html/admin/config/nox-admin-config.php.example /home/noxpa/nox-admin-config.php
+chmod 600 /home/noxpa/nox-admin-config.php
+nano /home/noxpa/nox-admin-config.php
 ```
 
-Cambie obligatoriamente `DB_PASSWORD` y las credenciales iniciales. No suba este archivo con las claves reales a GitHub.
+Edite estos valores con los nombres exactos de cPanel:
 
-## 5. Configurar Apache
+```php
+'db' => [
+    'host' => 'localhost',
+    'port' => 3306,
+    'name' => 'noxpa_nox_admin',
+    'user' => 'noxpa_nox_app',
+    'password' => 'SU_CONTRASENA_MYSQL',
+],
+```
 
-Instale el VirtualHost incluido:
+Mantenga:
+
+```php
+'app_origin' => 'https://admin.noxpanama.com',
+'cookie_secure' => true,
+```
+
+La aplicación busca automáticamente `/home/noxpa/nox-admin-config.php`. Para otra cuenta o ruta puede definir la variable `NOX_ADMIN_CONFIG` en Apache.
+
+## 5. Crear el primer administrador
+
+En `/home/noxpa/nox-admin-config.php`, coloque temporalmente un correo y una contraseña inicial de al menos 12 caracteres:
+
+```php
+'initial_admin' => [
+    'email' => 'admin@noxpanama.com',
+    'password' => 'UNA_CLAVE_INICIAL_LARGA',
+    'name' => 'Administrador NOX',
+],
+```
+
+Luego ejecute:
 
 ```bash
-sudo cp /var/www/nox-admin/apache/nox-admin.conf.example /etc/apache2/sites-available/nox-admin.conf
-sudo a2ensite nox-admin.conf
-sudo apache2ctl configtest
-sudo systemctl reload apache2
+php /home/noxpa/public_html/admin/scripts/create-admin.php
 ```
 
-El resultado de `apache2ctl configtest` debe ser `Syntax OK`.
+Debe aparecer:
 
-## 6. Crear el primer administrador
+```text
+Administrador creado o actualizado: admin@noxpanama.com
+```
 
-Las variables `SetEnv` de Apache no existen automáticamente en la terminal. Ejecute el script pasando las variables de forma temporal:
+Después borre la contraseña inicial del archivo, dejándola vacía:
+
+```php
+'password' => '',
+```
+
+La contraseña del usuario ya quedó almacenada en MySQL mediante un hash seguro.
+
+## 6. Permisos
+
+En un alojamiento cPanel estándar:
 
 ```bash
-sudo -u www-data env \
-  DB_HOST=127.0.0.1 \
-  DB_PORT=3306 \
-  DB_NAME=nox_admin \
-  DB_USER=nox_app \
-  DB_PASSWORD='UNA_CLAVE_LARGA_Y_UNICA' \
-  INITIAL_ADMIN_EMAIL='admin@noxpanama.com' \
-  INITIAL_ADMIN_PASSWORD='UNA_CLAVE_INICIAL_DE_12_CARACTERES' \
-  INITIAL_ADMIN_NAME='Administrador NOX' \
-  php /var/www/nox-admin/scripts/create-admin.php
+find /home/noxpa/public_html/admin -type d -exec chmod 755 {} \;
+find /home/noxpa/public_html/admin -type f -exec chmod 644 {} \;
+chmod 600 /home/noxpa/nox-admin-config.php
 ```
 
-Después de ingresar, cree cuentas individuales para cada trabajador. No comparta la cuenta del administrador.
+No cambie el propietario de los archivos a `apache`; deben permanecer bajo el usuario `noxpa` en cPanel. Los `.htaccess` incluidos bloquean el acceso web a `app`, `config`, `db`, `scripts` y `apache`.
 
-## 7. Activar HTTPS
+## 7. HTTPS
 
-Cuando el DNS ya apunte al servidor:
+En **cPanel > SSL/TLS Status**, ejecute AutoSSL para `admin.noxpanama.com`. No inicie sesión hasta que el certificado esté activo.
 
-```bash
-sudo certbot --apache -d admin.noxpanama.com
-sudo apache2ctl configtest
-sudo systemctl reload apache2
+Pruebe:
+
+```text
+https://admin.noxpanama.com/api/health
 ```
 
-Compruebe que `https://admin.noxpanama.com/api/health` devuelva:
+La respuesta esperada es:
 
 ```json
 {"ok":true,"service":"nox-admin-php"}
@@ -167,27 +187,53 @@ Compruebe que `https://admin.noxpanama.com/api/health` devuelva:
 
 Después abra `https://admin.noxpanama.com` e inicie sesión.
 
-## Actualizaciones futuras
+## 8. Verificación y diagnóstico
 
-Antes de reemplazar archivos:
+Compruebe la sintaxis PHP desde Terminal:
 
-1. haga una copia de seguridad de MySQL;
-2. copie la versión nueva a una carpeta temporal;
-3. compare y aplique cambios de `db/schema.sql`;
-4. reemplace `app/` y `public/`;
-5. conserve `/etc/apache2/nox-admin-env.conf`;
-6. ejecute `apache2ctl configtest` y recargue Apache.
+```bash
+find /home/noxpa/public_html/admin -name '*.php' -exec php -l {} \;
+```
 
-## Seguridad y respaldos
+Si `/api/health` devuelve 404, revise que:
 
-- Mantenga `COOKIE_SECURE=true`.
-- No use el usuario `root` de MySQL en la aplicación.
-- Restrinja MySQL a `localhost` cuando esté en el mismo servidor.
-- Haga respaldos automáticos diarios y pruebe su restauración.
-- Proteja `/etc/apache2/nox-admin-env.conf` con permisos `640`.
-- Mantenga PHP, Apache y MySQL actualizados.
-- Revise periódicamente cierres, usuarios y auditoría.
+- el Document Root sea exactamente `/home/noxpa/public_html/admin/public`;
+- el archivo `public/.htaccess` exista;
+- Apache permita `AllowOverride` para el dominio;
+- `mod_rewrite` esté activo.
+
+Si devuelve 500, revise **cPanel > Metrics > Errors** y confirme:
+
+- que `/home/noxpa/nox-admin-config.php` exista y tenga valores reales;
+- que `pdo_mysql` esté activo;
+- que el usuario MySQL esté asociado a la base;
+- que los nombres de base y usuario incluyan el prefijo real de cPanel.
+
+## Servidor CentOS sin cPanel
+
+Si administra Apache directamente como `root`, instale los módulos y use el VirtualHost incluido:
+
+```bash
+sudo dnf install httpd php php-pdo php-mysqlnd php-mbstring
+sudo cp /home/noxpa/public_html/admin/apache/nox-admin.conf.example /etc/httpd/conf.d/nox-admin.conf
+sudo apachectl configtest
+sudo systemctl reload httpd
+```
+
+Configure HTTPS con el método de certificados de su servidor. En cPanel no ejecute estos comandos ni edite `/etc/httpd` manualmente.
+
+## Actualizaciones y respaldos
+
+Antes de actualizar:
+
+1. exporte la base desde phpMyAdmin o el sistema de respaldos de cPanel;
+2. conserve `/home/noxpa/nox-admin-config.php` fuera de `public_html`;
+3. reemplace los archivos de `admin/`;
+4. aplique solo las migraciones SQL nuevas que correspondan;
+5. pruebe `/api/health`, inicio de sesión, una venta y un cierre de caja.
+
+Haga respaldos diarios de la base y pruebe periódicamente una restauración.
 
 ## Nota sobre planilla
 
-La planilla calcula horas aprobadas, tarifa por hora o salario mensual, horas extra, bonos y deducciones manuales. Las deducciones legales automáticas de Panamá deben validarse con el contador o responsable de planilla antes de emitir pagos oficiales.
+La planilla calcula horas aprobadas, salario por hora o mensual, horas extra, bonos y deducciones manuales. Las obligaciones legales y deducciones automáticas de Panamá deben ser validadas con el contador antes de emitir pagos oficiales.

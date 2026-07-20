@@ -1,0 +1,23 @@
+<?php
+declare(strict_types=1);
+
+return [
+    'app_env' => 'production',
+    'app_origin' => 'https://admin.noxpanama.com',
+    'cookie_secure' => true,
+
+    'db' => [
+        'host' => 'localhost',
+        'port' => 3306,
+        // cPanel suele anteponer el usuario de la cuenta a estos nombres.
+        'name' => 'noxpa_nox_admin',
+        'user' => 'noxpa_nox_app',
+        'password' => 'REEMPLACE_CON_UNA_CLAVE_LARGA_Y_UNICA',
+    ],
+
+    'initial_admin' => [
+        'email' => 'admin@noxpanama.com',
+        'password' => 'REEMPLACE_CON_UNA_CLAVE_INICIAL_DE_12_CARACTERES',
+        'name' => 'Administrador NOX',
+    ],
+];

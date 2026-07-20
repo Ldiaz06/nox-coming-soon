@@ -1,9 +1,11 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/config.php';
+
 date_default_timezone_set('America/Panama');
 
-$production = (getenv('APP_ENV') ?: 'production') === 'production';
+$production = nox_config_value('app_env', 'production') === 'production';
 ini_set('display_errors', $production ? '0' : '1');
 error_reporting(E_ALL);
 
@@ -13,7 +15,7 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 
-$secureCookie = (getenv('COOKIE_SECURE') ?: 'true') === 'true';
+$secureCookie = (bool) nox_config_value('cookie_secure', true);
 if ($secureCookie && (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')) {
     header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 }
@@ -31,7 +33,7 @@ session_set_cookie_params([
 session_start();
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-$allowedOrigin = (string) getenv('APP_ORIGIN');
+$allowedOrigin = (string) nox_config_value('app_origin', '');
 if ($origin !== '' && $allowedOrigin !== '' && !hash_equals($allowedOrigin, $origin)) {
     http_response_code(403);
     header('Content-Type: application/json; charset=utf-8');
