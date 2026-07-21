@@ -7,7 +7,7 @@ function workforce_employees(array $params = [])
     $rows = db()->query(
         'SELECT e.id, e.user_id AS userId, e.employee_code AS code, e.full_name AS fullName,
                 e.position_name AS position, e.pay_type AS payType, e.hourly_rate AS hourlyRate,
-                e.monthly_salary AS monthlySalary, e.overtime_multiplier AS overtimeMultiplier,
+                e.overtime_multiplier AS overtimeMultiplier,
                 e.hired_on AS hiredOn, e.status, u.role
          FROM employees e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.full_name'
     )->fetchAll();
@@ -23,18 +23,17 @@ function workforce_employee_create(array $params = [])
     $code = value_string($body, 'code', 1, 40) ?? '';
     $name = value_string($body, 'fullName', 3, 160) ?? '';
     $position = value_string($body, 'position', 2, 100) ?? '';
-    $payType = require_choice($body['payType'] ?? '', ['hourly', 'monthly'], 'payType');
+    $payType = require_choice($body['payType'] ?? '', ['hourly', 'biweekly'], 'payType');
     $hourly = value_number($body, 'hourlyRate', 0);
-    $monthly = value_number($body, 'monthlySalary', 0);
     $multiplier = value_number($body, 'overtimeMultiplier', 1, 5);
     $hiredOn = value_string($body, 'hiredOn', 0, 10, false);
     try {
         $statement = db()->prepare(
             'INSERT INTO employees
                (user_id, employee_code, full_name, position_name, pay_type, hourly_rate, monthly_salary, overtime_multiplier, hired_on)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)'
         );
-        $statement->execute([$userId, $code, $name, $position, $payType, $hourly, $monthly, $multiplier, $hiredOn]);
+        $statement->execute([$userId, $code, $name, $position, $payType, $hourly, $multiplier, $hiredOn]);
     } catch (PDOException $error) {
         if ((string) $error->getCode() === '23000') throw new ApiError('El código o usuario ya está asignado.', 409);
         throw $error;
@@ -181,7 +180,7 @@ function payroll_calculate(array $params)
         if (!in_array($period['status'], ['draft', 'calculated'], true)) throw new ApiError('La planilla aprobada o pagada no puede recalcularse.', 409);
         $pdo->prepare('DELETE FROM payroll_entries WHERE payroll_period_id = ?')->execute([$periodId]);
         $employees = $pdo->prepare(
-            "SELECT e.id, e.pay_type, e.hourly_rate, e.monthly_salary, e.overtime_multiplier,
+            "SELECT e.id, e.pay_type, e.hourly_rate, e.overtime_multiplier,
                     COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MINUTE, t.clock_in, t.clock_out) - t.break_minutes, 0)) / 60, 0) AS total_hours
              FROM employees e LEFT JOIN time_entries t ON t.employee_id = e.id AND t.status = 'approved'
                AND t.clock_in >= ? AND t.clock_in < DATE_ADD(?, INTERVAL 1 DAY)
@@ -200,10 +199,8 @@ function payroll_calculate(array $params)
             $totalHours = (float) $employee['total_hours'];
             $regular = min($totalHours, $limit);
             $overtime = max($totalHours - $limit, 0);
-            $hourly = $employee['pay_type'] === 'hourly' ? (float) $employee['hourly_rate'] : (float) $employee['monthly_salary'] / 208;
-            $basePay = $employee['pay_type'] === 'hourly'
-                ? $regular * $hourly
-                : (float) $employee['monthly_salary'] * ($period['period_type'] === 'biweekly' ? 0.5 : 1);
+            $hourly = (float) $employee['hourly_rate'];
+            $basePay = $regular * $hourly;
             $overtimePay = $overtime * $hourly * (float) $employee['overtime_multiplier'];
             $gross = money_round($basePay + $overtimePay);
             $insert->execute([$periodId, $employee['id'], $regular, $overtime, $basePay, $overtimePay, $gross, $gross]);

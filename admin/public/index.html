@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20260721-2">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -24,8 +24,8 @@
         <p class="muted">Ventas, inventario, cierres y equipo en un solo lugar.</p>
       </div>
       <form id="login-form" class="form-stack">
-        <label>Correo electrónico<input name="email" type="email" autocomplete="username" required></label>
-        <label>Contraseña<input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+        <label>Usuario<input name="username" autocomplete="username" minlength="3" maxlength="80" required></label>
+        <label>Contraseña<input name="password" type="password" autocomplete="current-password" minlength="4" required></label>
         <button class="button button--primary" type="submit">Ingresar</button>
         <p id="login-error" class="form-error" role="alert"></p>
       </form>
@@ -69,17 +69,26 @@
       </section>
 
       <section id="section-pos" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">PUNTO DE VENTA</p><h2>Nueva venta</h2></div><span id="pos-session-label" class="status-pill">Caja cerrada</span></div>
+        <header class="pos-commandbar">
+          <div class="pos-brand"><strong>NOX</strong><span>PUNTO DE VENTA</span></div>
+          <div class="pos-operator"><span id="pos-user-name"></span><span id="pos-session-label" class="status-pill">Caja cerrada</span></div>
+          <div class="pos-actions"><button id="pos-cash-button" class="button button--ghost">Mi caja</button><button id="exit-pos" class="button button--ghost">← Administración</button></div>
+        </header>
         <div class="pos-layout">
           <div class="panel catalog-panel">
-            <div class="catalog-tools"><input id="product-search" type="search" placeholder="Buscar producto o código"><select id="product-category"><option value="">Todas las categorías</option></select></div>
+            <div class="catalog-tools"><input id="product-search" type="search" aria-label="Buscar producto" placeholder="Buscar producto o código"><select id="product-category" aria-label="Filtrar categoría"><option value="">Todas las categorías</option></select></div>
             <div id="product-grid" class="product-grid"></div>
           </div>
           <aside class="panel cart-panel">
             <div class="panel-heading"><h3>Orden actual</h3><button id="clear-cart" class="text-button">Limpiar</button></div>
             <div id="cart-lines" class="cart-lines"></div>
             <div class="cart-totals"><div><span>Subtotal</span><strong id="cart-subtotal">0.00</strong></div><div><span>Impuesto</span><strong id="cart-tax">0.00</strong></div><div class="cart-total"><span>Total</span><strong id="cart-total">0.00</strong></div></div>
-            <label>Método de pago<select id="payment-method"><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="yappy">Yappy</option></select></label>
+            <div id="payment-methods" class="payment-methods" role="group" aria-label="Método de pago">
+              <button type="button" data-payment-method="cash" aria-pressed="true"><span aria-hidden="true">💵</span>Efectivo</button>
+              <button type="button" data-payment-method="card" aria-pressed="false"><span aria-hidden="true">💳</span>Tarjeta</button>
+              <button type="button" data-payment-method="yappy" aria-pressed="false"><span aria-hidden="true">📱</span>Yappy</button>
+            </div>
+            <input id="payment-method" type="hidden" value="cash">
             <label id="payment-reference-wrap" hidden>Referencia<input id="payment-reference" maxlength="120"></label>
             <button id="complete-sale" class="button button--primary" disabled>Cobrar</button>
             <p id="pos-message" class="form-message" role="status"></p>
@@ -138,16 +147,29 @@
 
       <section id="section-users" class="page-section" hidden>
         <div class="section-heading"><div><p class="eyebrow">SEGURIDAD</p><h2>Usuarios y roles</h2></div><button id="show-new-user" class="button button--primary">Nuevo usuario</button></div>
-        <form id="new-user-form" class="panel inline-form" hidden><label>Nombre<input name="fullName" required></label><label>Correo<input name="email" type="email" required></label><label>Contraseña inicial<input name="password" type="password" minlength="12" required></label><label>Rol<select name="role"><option value="cashier">Cajero</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label><label>Código de empleado<input name="employeeCode" placeholder="EMP-001"></label><label>Cargo<input name="position" placeholder="Cajero"></label><label>Tipo de pago<select name="payType"><option value="hourly">Por hora</option><option value="monthly">Mensual</option></select></label><label>Tarifa por hora<input name="hourlyRate" type="number" min="0" step="0.01" value="0"></label><label>Salario mensual<input name="monthlySalary" type="number" min="0" step="0.01" value="0"></label><div class="form-actions"><button class="button button--primary">Crear</button><button type="button" class="button button--ghost" data-cancel-form="new-user-form">Cancelar</button></div></form>
-        <div class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Empleado</th><th>Último acceso</th><th>Estado</th></tr></thead><tbody id="users-table"></tbody></table></div></div>
+        <form id="new-user-form" class="panel inline-form" hidden>
+          <label>Nombre completo<input name="fullName" required></label><label>Usuario<input name="username" minlength="3" maxlength="80" required></label><label>Contraseña inicial<input name="password" type="password" minlength="4" required></label><label>Rol<select name="role"><option value="cashier">Cajero</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label>
+          <label>Código de empleado<input name="employeeCode" placeholder="EMP-001"></label><label>Cargo<input name="position" placeholder="Cajero"></label><label>Modalidad de pago<select name="payType"><option value="hourly">Por hora</option><option value="biweekly">Quincenal</option></select></label><label>Tarifa por hora<input name="hourlyRate" type="number" min="0" step="0.01" value="0"></label>
+          <label class="checkbox-field"><input name="terminalEnabled" type="checkbox" checked><span>Crear caja para este usuario</span></label><label>Nombre de la caja<input name="terminalName" placeholder="Se genera automáticamente"></label>
+          <div class="form-actions"><button class="button button--primary">Crear</button><button type="button" class="button button--ghost" data-cancel-form="new-user-form">Cancelar</button></div>
+        </form>
+        <div class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Pago</th><th>Caja</th><th>Último acceso</th><th>Estado</th><th></th></tr></thead><tbody id="users-table"></tbody></table></div></div>
       </section>
     </main>
   </div>
 
   <dialog id="adjust-dialog"><form method="dialog" id="adjust-form" class="dialog-form"><div><p class="eyebrow">INVENTARIO</p><h2>Ajustar existencia</h2><p id="adjust-item-name" class="muted"></p></div><input name="itemId" type="hidden"><label>Movimiento<select name="type"><option value="adjustment">Ajuste (+/-)</option><option value="waste">Merma</option><option value="count">Conteo físico</option></select></label><label>Cantidad<input name="quantity" type="number" step="0.001" required></label><label>Nota<input name="notes" maxlength="500"></label><div class="form-actions"><button class="button button--primary" value="submit">Guardar</button><button class="button button--ghost" value="cancel">Cancelar</button></div></form></dialog>
   <dialog id="close-dialog"><form method="dialog" id="close-form" class="dialog-form"><div><p class="eyebrow">CIERRE</p><h2>Cerrar caja</h2></div><input name="sessionId" type="hidden"><label>Efectivo contado<input name="countedCash" type="number" min="0" step="0.01" required></label><label>Notas<input name="notes" maxlength="500"></label><div class="form-actions"><button class="button button--primary" value="submit">Cerrar caja</button><button class="button button--ghost" value="cancel">Cancelar</button></div></form></dialog>
+  <dialog id="edit-user-dialog">
+    <form method="dialog" id="edit-user-form" class="dialog-form dialog-form--wide">
+      <div><p class="eyebrow">USUARIOS</p><h2>Editar usuario</h2><p class="muted">Deje la contraseña vacía para conservar la actual.</p></div>
+      <input name="id" type="hidden">
+      <div class="dialog-grid"><label>Nombre completo<input name="fullName" required></label><label>Usuario<input name="username" minlength="3" maxlength="80" required></label><label>Nueva contraseña<input name="password" type="password" minlength="4"></label><label>Rol<select name="role"><option value="cashier">Cajero</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label><label>Estado<select name="status"><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="locked">Bloqueado</option></select></label><label>Código de empleado<input name="employeeCode"></label><label>Cargo<input name="position"></label><label>Modalidad de pago<select name="payType"><option value="hourly">Por hora</option><option value="biweekly">Quincenal</option></select></label><label>Tarifa por hora<input name="hourlyRate" type="number" min="0" step="0.01"></label><label class="checkbox-field"><input name="terminalEnabled" type="checkbox"><span>Caja asignada activa</span></label><label>Nombre de la caja<input name="terminalName"></label></div>
+      <div class="form-actions"><button class="button button--primary" value="submit">Guardar cambios</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=20260721-2" defer></script>
 </body>
 </html>

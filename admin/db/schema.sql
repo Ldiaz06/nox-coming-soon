@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  email VARCHAR(190) NOT NULL,
+  username VARCHAR(80) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(160) NOT NULL,
   role ENUM('admin', 'supervisor', 'cashier') NOT NULL,
@@ -9,16 +9,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY users_email_uq (email)
+  UNIQUE KEY users_username_uq (username)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS login_attempts (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   ip_address VARCHAR(64) NOT NULL,
-  email VARCHAR(190) NOT NULL,
+  username VARCHAR(80) NOT NULL,
   attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY login_attempts_lookup_idx (ip_address, email, attempted_at)
+  KEY login_attempts_lookup_idx (ip_address, username, attempted_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS employees (
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS employees (
   document_id VARCHAR(80) NULL,
   full_name VARCHAR(160) NOT NULL,
   position_name VARCHAR(100) NOT NULL,
-  pay_type ENUM('hourly', 'monthly') NOT NULL DEFAULT 'hourly',
+  pay_type ENUM('hourly', 'biweekly') NOT NULL DEFAULT 'hourly',
   hourly_rate DECIMAL(12,2) NOT NULL DEFAULT 0,
   monthly_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
   overtime_multiplier DECIMAL(6,2) NOT NULL DEFAULT 1.50,
@@ -47,9 +47,12 @@ CREATE TABLE IF NOT EXISTS terminals (
   name VARCHAR(100) NOT NULL,
   location_name VARCHAR(120) NOT NULL DEFAULT 'Bar principal',
   status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  assigned_user_id BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY terminals_name_uq (name)
+  UNIQUE KEY terminals_name_uq (name),
+  UNIQUE KEY terminals_user_uq (assigned_user_id),
+  CONSTRAINT terminals_user_fk FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS inventory_items (

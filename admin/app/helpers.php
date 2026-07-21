@@ -97,7 +97,7 @@ function current_user(): ?array
     if (!$id) {
         return null;
     }
-    $statement = db()->prepare('SELECT id, email, full_name, role, status FROM users WHERE id = ? LIMIT 1');
+    $statement = db()->prepare('SELECT id, username, full_name, role, status FROM users WHERE id = ? LIMIT 1');
     $statement->execute([(int) $id]);
     $user = $statement->fetch();
     if (!$user || $user['status'] !== 'active') {

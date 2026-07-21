@@ -26,7 +26,9 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 
 - Administrador: acceso total, usuarios, inventario, POS, reportes, horas y planilla.
 - Supervisor: POS, inventario, cajas, reportes y aprobación de horas.
-- Cajero: POS, su propia caja y marcación personal.
+- Cajero: POS de pantalla completa, su propia caja y marcación personal.
+- Acceso mediante nombre de usuario, sin correo obligatorio.
+- Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
 - Inventario conectado a recetas y ventas.
 - Cierres diarios, reportes quincenales y mensuales.
 - Compras, ajustes, mermas, conteos, horas y planilla.
@@ -127,12 +129,12 @@ La aplicación detecta automáticamente el directorio de la cuenta y busca `/hom
 
 ## 5. Crear el primer administrador
 
-En `/home/noxpana/nox-admin-config.php`, coloque temporalmente un correo y una contraseña inicial de al menos 12 caracteres:
+En `/home/noxpana/nox-admin-config.php`, coloque temporalmente un usuario y una contraseña inicial de al menos 4 caracteres:
 
 ```php
 'initial_admin' => [
-    'email' => 'admin@noxpanama.com',
-    'password' => 'UNA_CLAVE_INICIAL_LARGA',
+    'username' => 'admin',
+    'password' => 'UNA_CLAVE_DE_4_CARACTERES_O_MAS',
     'name' => 'Administrador NOX',
 ],
 ```
@@ -146,7 +148,7 @@ php /home/noxpana/public_html/admin/scripts/create-admin.php
 Debe aparecer:
 
 ```text
-Administrador creado o actualizado: admin@noxpanama.com
+Administrador creado o actualizado: admin
 ```
 
 Después borre la contraseña inicial del archivo, dejándola vacía:
@@ -233,6 +235,22 @@ Antes de actualizar:
 3. reemplace los archivos de `admin/`;
 4. aplique solo las migraciones SQL nuevas que correspondan;
 5. pruebe `/api/health`, inicio de sesión, una venta y un cierre de caja.
+
+### Migración de usuarios y cajas — julio de 2026
+
+Las instalaciones creadas antes de esta versión deben importar una sola vez, desde phpMyAdmin:
+
+```text
+/home/noxpana/public_html/admin/db/migrations/2026-07-21-usernames-user-cashboxes.sql
+```
+
+La migración:
+
+- convierte el correo existente en nombre de usuario sin borrar la cuenta ni cambiar su contraseña;
+- convierte empleados mensuales a modalidad quincenal conservando o calculando su tarifa por hora;
+- crea una caja individual para cada usuario activo existente.
+
+Después de migrar, el usuario anterior sigue siendo el mismo texto que se utilizaba como correo. Inicie sesión con ese valor y use **Usuarios > Editar** para cambiarlo, por ejemplo, a `admin`.
 
 Haga respaldos diarios de la base y pruebe periódicamente una restauración.
 

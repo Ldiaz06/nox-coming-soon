@@ -3,8 +3,21 @@ declare(strict_types=1);
 
 function cash_terminals(array $params = [])
 {
-    require_auth();
-    $rows = db()->query("SELECT id, name, location_name AS locationName FROM terminals WHERE status = 'active' ORDER BY name")->fetchAll();
+    $user = require_auth();
+    $statement = db()->prepare(
+        "SELECT id, name, location_name AS locationName, assigned_user_id AS assignedUserId
+         FROM terminals
+         WHERE status = 'active' AND (
+           assigned_user_id = ?
+           OR (assigned_user_id IS NULL AND NOT EXISTS (
+             SELECT 1 FROM terminals own_terminal
+             WHERE own_terminal.assigned_user_id = ? AND own_terminal.status = 'active'
+           ))
+         )
+         ORDER BY assigned_user_id DESC, name"
+    );
+    $statement->execute([$user['id'], $user['id']]);
+    $rows = $statement->fetchAll();
     json_response(['terminals' => $rows]);
 }
 
@@ -13,7 +26,8 @@ function cash_sessions(array $params = [])
     $user = require_auth();
     $sql = "SELECT c.id, c.terminal_id AS terminalId, t.name AS terminalName, c.opening_amount AS openingAmount,
                    c.expected_cash AS expectedCash, c.counted_cash AS countedCash, c.cash_difference AS cashDifference,
-                   c.status, c.opened_at AS openedAt, c.closed_at AS closedAt, u.full_name AS openedBy
+                   c.status, c.opened_at AS openedAt, c.closed_at AS closedAt,
+                   u.id AS openedById, u.full_name AS openedBy
             FROM cash_sessions c JOIN terminals t ON t.id = c.terminal_id JOIN users u ON u.id = c.opened_by ";
     $values = [];
     if ($user['role'] === 'cashier') {
@@ -34,9 +48,20 @@ function cash_open(array $params = [])
     $terminalId = value_id($body, 'terminalId');
     $opening = value_number($body, 'openingAmount', 0, 100000);
     $id = transaction(function (PDO $pdo) use ($user, $terminalId, $opening): int {
-        $terminal = $pdo->prepare("SELECT id FROM terminals WHERE id = ? AND status = 'active' FOR UPDATE");
+        $terminal = $pdo->prepare("SELECT id, assigned_user_id FROM terminals WHERE id = ? AND status = 'active' FOR UPDATE");
         $terminal->execute([$terminalId]);
-        if (!$terminal->fetch()) throw new ApiError('Terminal inválida.', 404);
+        $terminalRow = $terminal->fetch();
+        if (!$terminalRow) throw new ApiError('Terminal inválida.', 404);
+        if ($terminalRow['assigned_user_id'] !== null && (int) $terminalRow['assigned_user_id'] !== (int) $user['id']) {
+            throw new ApiError('Esta caja está asignada a otro usuario.', 403);
+        }
+        if ($terminalRow['assigned_user_id'] === null) {
+            $ownTerminal = $pdo->prepare("SELECT id FROM terminals WHERE assigned_user_id = ? AND status = 'active' FOR UPDATE");
+            $ownTerminal->execute([$user['id']]);
+            if ($ownTerminal->fetchColumn()) {
+                throw new ApiError('Debe utilizar la caja asignada a su usuario.', 409);
+            }
+        }
         $existing = $pdo->prepare("SELECT id FROM cash_sessions WHERE terminal_id = ? AND status = 'open' FOR UPDATE");
         $existing->execute([$terminalId]);
         if ($existing->fetch()) throw new ApiError('La terminal ya tiene una caja abierta.', 409);

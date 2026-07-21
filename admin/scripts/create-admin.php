@@ -9,21 +9,44 @@ if (PHP_SAPI !== 'cli') {
 require_once dirname(__DIR__) . '/app/config.php';
 require_once dirname(__DIR__) . '/app/db.php';
 
-$email = strtolower(trim((string) nox_config_value('initial_admin.email', '')));
+$username = mb_strtolower(trim((string) nox_config_value(
+    'initial_admin.username',
+    nox_config_value('initial_admin.email', '')
+)));
 $password = (string) nox_config_value('initial_admin.password', '');
 $name = trim((string) nox_config_value('initial_admin.name', 'Administrador NOX'));
 
-if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    throw new RuntimeException('INITIAL_ADMIN_EMAIL no es válido.');
+if (mb_strlen($username) < 3 || mb_strlen($username) > 80 || !preg_match('/^[\p{L}\p{N}._@-]+$/u', $username)) {
+    throw new RuntimeException('INITIAL_ADMIN_USERNAME no es válido.');
 }
-if (strlen($password) < 12) {
-    throw new RuntimeException('INITIAL_ADMIN_PASSWORD debe tener al menos 12 caracteres.');
+if (strlen($password) < 4) {
+    throw new RuntimeException('INITIAL_ADMIN_PASSWORD debe tener al menos 4 caracteres.');
 }
 
 $statement = db()->prepare(
-    "INSERT INTO users (email, password_hash, full_name, role, status)
+    "INSERT INTO users (username, password_hash, full_name, role, status)
      VALUES (?, ?, ?, 'admin', 'active')
      ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), full_name = VALUES(full_name), role = 'admin', status = 'active'"
 );
-$statement->execute([$email, password_hash($password, PASSWORD_DEFAULT), $name]);
-fwrite(STDOUT, "Administrador creado o actualizado: {$email}\n");
+$statement->execute([$username, password_hash($password, PASSWORD_DEFAULT), $name]);
+
+$userStatement = db()->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+$userStatement->execute([$username]);
+$userId = (int) $userStatement->fetchColumn();
+$terminalStatement = db()->prepare('SELECT id FROM terminals WHERE assigned_user_id = ? LIMIT 1');
+$terminalStatement->execute([$userId]);
+if (!$terminalStatement->fetchColumn()) {
+    $available = db()->query(
+        "SELECT id FROM terminals WHERE assigned_user_id IS NULL AND status = 'active' ORDER BY id LIMIT 1"
+    )->fetchColumn();
+    if ($available) {
+        db()->prepare('UPDATE terminals SET assigned_user_id = ? WHERE id = ?')->execute([$userId, $available]);
+    } else {
+        db()->prepare(
+            "INSERT INTO terminals (name, location_name, status, assigned_user_id)
+             VALUES (?, 'Bar principal', 'active', ?)"
+        )->execute(['Caja ' . $userId . ' - ' . $name, $userId]);
+    }
+}
+
+fwrite(STDOUT, "Administrador creado o actualizado: {$username}\n");

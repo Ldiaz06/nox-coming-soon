@@ -230,7 +230,7 @@ function pos_products(array $params = [])
                 COALESCE(MIN(i.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
          FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
-         WHERE p.active = TRUE GROUP BY p.id ORDER BY p.category, p.name'
+         WHERE p.active = TRUE GROUP BY p.id HAVING available >= 1 ORDER BY p.category, p.name'
     )->fetchAll();
     foreach ($rows as &$row) {
         $row['available'] = max(0, (int) floor((float) $row['available']));
@@ -273,7 +273,7 @@ function pos_sale_create(array $params = [])
         $sessionStatement->execute([$sessionId]);
         $session = $sessionStatement->fetch();
         if (!$session) throw new ApiError('La caja no está abierta.', 409);
-        if ($user['role'] === 'cashier' && (int) $session['opened_by'] !== (int) $user['id']) {
+        if ((int) $session['opened_by'] !== (int) $user['id']) {
             throw new ApiError('Solo puede vender en su propia caja.', 403);
         }
 

@@ -4,6 +4,7 @@ const state = {
   section: "dashboard",
   products: [],
   inventory: [],
+  users: [],
   cashSessions: [],
   terminals: [],
   cart: new Map(),
@@ -46,7 +47,7 @@ async function api(path, options = {}) {
     ...options,
     headers
   });
-  if (response.status === 401) {
+  if (response.status === 401 && !requested.pathname.endsWith('/auth/login')) {
     showLogin();
     throw new Error("La sesión expiró.");
   }
@@ -62,6 +63,7 @@ function showLogin() {
   state.csrf = null;
   $("#app-view").hidden = true;
   $("#login-view").hidden = false;
+  $("#app-view").classList.remove("is-pos-mode");
   clearInterval(state.clockTimer);
 }
 
@@ -72,6 +74,7 @@ function showApp(user, csrf = state.csrf) {
   $("#app-view").hidden = false;
   $("#user-name").textContent = user.fullName;
   $("#user-role").textContent = roleNames[user.role];
+  $("#pos-user-name").textContent = user.fullName;
   $$('[data-roles]').forEach((element) => {
     element.hidden = !element.dataset.roles.split(",").includes(user.role);
   });
@@ -95,6 +98,7 @@ async function navigate(section) {
   const button = $(`#main-nav [data-section="${section}"]`);
   if (!button || button.hidden) return;
   state.section = section;
+  $("#app-view").classList.toggle("is-pos-mode", section === "pos");
   $$(".page-section").forEach((page) => { page.hidden = page.id !== `section-${section}`; });
   $$("#main-nav button").forEach((navButton) => navButton.removeAttribute("aria-current"));
   button.setAttribute("aria-current", "page");
@@ -114,6 +118,10 @@ function kpi(label, value, detail = "") {
   return `<article class="kpi"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(detail)}</span></article>`;
 }
 
+function ownOpenSession() {
+  return state.cashSessions.find((session) => session.status === "open" && Number(session.openedById) === Number(state.user.id));
+}
+
 async function loadDashboard() {
   const [salesData, cashData, clockData] = await Promise.all([
     api("/api/pos/sales?limit=6"),
@@ -121,7 +129,7 @@ async function loadDashboard() {
     api("/api/workforce/clock")
   ]);
   state.cashSessions = cashData.sessions;
-  const openSession = cashData.sessions.find((session) => session.status === "open");
+  const openSession = ownOpenSession();
   let lowStock = [];
   if (state.user.role !== "cashier") {
     const [reportData, lowData] = await Promise.all([api(`/api/reports/summary?period=daily&anchor=${panamaDate()}`), api("/api/reports/low-stock")]);
@@ -154,7 +162,7 @@ async function loadPos() {
   const [{ products }, { sessions }] = await Promise.all([api("/api/pos/products"), api("/api/cash/sessions")]);
   state.products = products;
   state.cashSessions = sessions;
-  const open = sessions.find((session) => session.status === "open");
+  const open = ownOpenSession();
   $("#pos-session-label").textContent = open ? `${open.terminalName} · Abierta` : "Caja cerrada";
   $("#pos-session-label").className = `status-pill ${open ? "badge--success" : "badge--danger"}`;
   const categories = [...new Set(products.map((product) => product.category))];
@@ -163,14 +171,29 @@ async function loadPos() {
   renderCart();
 }
 
+function productIcon(product) {
+  const value = `${product.category} ${product.name}`.toLowerCase();
+  if (/cerveza|beer|balboa|atlas|panam/.test(value)) return "🍺";
+  if (/champagne|espumante|prosecco/.test(value)) return "🍾";
+  if (/vino|wine/.test(value)) return "🍷";
+  if (/whisky|whiskey|ron|rum|brandy|cognac/.test(value)) return "🥃";
+  if (/vodka|gin|ginebra|tequila|mezcal|licor/.test(value)) return "🍸";
+  if (/cocktail|cóctel|signature|martini|negroni/.test(value)) return "🍹";
+  if (/agua|soda|refresco|jugo|energy|red bull/.test(value)) return "🥤";
+  if (/comida|bite|tarta|jamón|queso|chocolate/.test(value)) return "🍽️";
+  return "✦";
+}
+
 function renderProducts() {
   const query = $("#product-search").value.trim().toLowerCase();
   const category = $("#product-category").value;
-  const products = state.products.filter((product) => (!category || product.category === category) && (!query || `${product.name} ${product.sku} ${product.barcode || ""}`.toLowerCase().includes(query)));
+  const products = state.products.filter((product) => Number(product.available) > 0 && (!category || product.category === category) && (!query || `${product.name} ${product.sku} ${product.barcode || ""}`.toLowerCase().includes(query)));
   $("#product-grid").innerHTML = products.length ? products.map((product) => `
-    <button class="product-card" data-product-id="${product.id}" ${product.available < 1 ? "disabled" : ""}>
-      <small>${escapeHtml(product.category)} · ${Math.floor(product.available)} disp.</small><strong>${escapeHtml(product.name)}</strong><span>${money.format(product.salePrice)}</span>
-    </button>`).join("") : '<p class="empty-state">No se encontraron productos.</p>';
+    <button class="product-card" data-product-id="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}, ${money.format(product.salePrice)}">
+      <span class="product-icon" aria-hidden="true">${productIcon(product)}</span>
+      <small>${escapeHtml(product.category)} · <span class="product-stock">${Math.floor(product.available)} disponibles</span></small>
+      <strong>${escapeHtml(product.name)}</strong><span class="product-price">${money.format(product.salePrice)}</span>
+    </button>`).join("") : '<p class="empty-state">No hay productos disponibles con este filtro.</p>';
 }
 
 function addToCart(productId) {
@@ -203,12 +226,12 @@ function renderCart() {
   $("#cart-subtotal").textContent = money.format(totals.subtotal);
   $("#cart-tax").textContent = money.format(totals.tax);
   $("#cart-total").textContent = money.format(totals.total);
-  const open = state.cashSessions.find((session) => session.status === "open");
+  const open = ownOpenSession();
   $("#complete-sale").disabled = !lines.length || !open;
 }
 
 async function completeSale() {
-  const open = state.cashSessions.find((session) => session.status === "open");
+  const open = ownOpenSession();
   if (!open) return toast("Debe abrir una caja antes de vender.", true);
   const totals = cartTotals();
   const method = $("#payment-method").value;
@@ -275,7 +298,10 @@ async function loadCash() {
   state.terminals = terminals;
   state.cashSessions = sessions;
   $("#terminal-select").innerHTML = terminals.map((terminal) => `<option value="${terminal.id}">${escapeHtml(terminal.name)}</option>`).join("");
-  const open = sessions.find((session) => session.status === "open");
+  const open = ownOpenSession();
+  const openButton = $("#open-cash-form button[type=submit]");
+  openButton.disabled = terminals.length < 1;
+  if (!terminals.length) $("#terminal-select").innerHTML = '<option value="">No tiene una caja asignada</option>';
   $("#open-cash-form").hidden = Boolean(open);
   $("#current-cash-session").innerHTML = open ? `<div class="list-row"><div><strong>${escapeHtml(open.terminalName)}</strong><small>Abierta ${dateTime.format(new Date(open.openedAt))}</small></div><button class="button button--ghost" data-close-session="${open.id}">Cerrar caja</button></div>` : '<p class="empty-state">No hay una caja abierta.</p>';
   $("#cash-table").innerHTML = sessions.map((session) => `<tr><td><strong>${escapeHtml(session.terminalName)}</strong></td><td>${escapeHtml(session.openedBy)}</td><td>${dateTime.format(new Date(session.openedAt))}</td><td>${session.expectedCash == null ? "—" : money.format(session.expectedCash)}</td><td>${session.countedCash == null ? "—" : money.format(session.countedCash)}</td><td>${session.cashDifference == null ? "—" : money.format(session.cashDifference)}</td><td><span class="badge ${session.status === "open" ? "badge--success" : "badge--gold"}">${session.status === "open" ? "Abierta" : "Cerrada"}</span></td></tr>`).join("");
@@ -338,7 +364,27 @@ async function viewPayroll(periodId) {
 
 async function loadUsers() {
   const { users } = await api("/api/users");
-  $("#users-table").innerHTML = users.map((user) => `<tr><td><strong>${escapeHtml(user.fullName)}</strong></td><td>${escapeHtml(user.email)}</td><td><span class="badge badge--gold">${escapeHtml(roleNames[user.role])}</span></td><td>${escapeHtml(user.employeeCode || "Sin vincular")}</td><td>${user.lastLoginAt ? dateTime.format(new Date(user.lastLoginAt)) : "Nunca"}</td><td><span class="badge ${user.status === "active" ? "badge--success" : "badge--danger"}">${escapeHtml(user.status)}</span></td></tr>`).join("");
+  state.users = users;
+  $("#users-table").innerHTML = users.map((user) => `<tr><td><strong>${escapeHtml(user.fullName)}</strong><small>${escapeHtml(user.employeeCode || "Sin código")}</small></td><td>${escapeHtml(user.username)}</td><td><span class="badge badge--gold">${escapeHtml(roleNames[user.role])}</span></td><td>${user.payType ? `${user.payType === "biweekly" ? "Quincenal" : "Por hora"} · ${money.format(user.hourlyRate || 0)}/h` : "Sin planilla"}</td><td>${escapeHtml(user.terminalName || "Sin caja")}</td><td>${user.lastLoginAt ? dateTime.format(new Date(user.lastLoginAt)) : "Nunca"}</td><td><span class="badge ${user.status === "active" ? "badge--success" : "badge--danger"}">${escapeHtml(user.status)}</span></td><td><button class="table-action" data-edit-user="${user.id}">Editar</button></td></tr>`).join("");
+}
+
+function openUserEditor(userId) {
+  const user = state.users.find((item) => Number(item.id) === Number(userId));
+  if (!user) return;
+  const form = $("#edit-user-form");
+  form.reset();
+  form.elements.id.value = user.id;
+  form.elements.fullName.value = user.fullName;
+  form.elements.username.value = user.username;
+  form.elements.role.value = user.role;
+  form.elements.status.value = user.status;
+  form.elements.employeeCode.value = user.employeeCode || "";
+  form.elements.position.value = user.positionName || "";
+  form.elements.payType.value = user.payType || "hourly";
+  form.elements.hourlyRate.value = Number(user.hourlyRate || 0);
+  form.elements.terminalEnabled.checked = user.terminalStatus === "active";
+  form.elements.terminalName.value = user.terminalName || "";
+  $("#edit-user-dialog").showModal();
 }
 
 function formValues(form) {
@@ -360,6 +406,8 @@ $("#login-form").addEventListener("submit", async (event) => {
 $("#logout-button").addEventListener("click", async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => null); showLogin(); });
 $("#main-nav").addEventListener("click", (event) => { const button = event.target.closest("[data-section]"); if (button) navigate(button.dataset.section); });
 $("#menu-button").addEventListener("click", () => { const sidebar = $(".sidebar"); sidebar.classList.toggle("is-open"); $("#menu-button").setAttribute("aria-expanded", String(sidebar.classList.contains("is-open"))); });
+$("#exit-pos").addEventListener("click", () => navigate("dashboard"));
+$("#pos-cash-button").addEventListener("click", () => navigate("cash"));
 $$('[data-refresh]').forEach((button) => button.addEventListener("click", () => navigate(button.dataset.refresh)));
 
 $("#product-search").addEventListener("input", renderProducts);
@@ -368,7 +416,15 @@ $("#product-grid").addEventListener("click", (event) => { const button = event.t
 $("#cart-lines").addEventListener("click", (event) => { const button = event.target.closest("[data-cart-change]"); if (!button) return; const id = Number(button.dataset.productId); const product = state.products.find((item) => item.id === id); const next = (state.cart.get(id) || 0) + Number(button.dataset.cartChange); if (next <= 0) state.cart.delete(id); else if (next <= product.available) state.cart.set(id, next); renderCart(); });
 $("#clear-cart").addEventListener("click", () => { state.cart.clear(); renderCart(); });
 $("#complete-sale").addEventListener("click", completeSale);
-$("#payment-method").addEventListener("change", (event) => { $("#payment-reference-wrap").hidden = event.target.value === "cash"; });
+$("#payment-methods").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-payment-method]");
+  if (!button) return;
+  const method = button.dataset.paymentMethod;
+  $("#payment-method").value = method;
+  $$("[data-payment-method]", $("#payment-methods")).forEach((option) => option.setAttribute("aria-pressed", String(option === button)));
+  $("#payment-reference-wrap").hidden = method === "cash";
+  if (method === "cash") $("#payment-reference").value = "";
+});
 
 $("#show-new-item").addEventListener("click", () => { $("#new-item-form").hidden = false; });
 $("#show-new-product").addEventListener("click", () => { $("#new-product-form").hidden = false; $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); });
@@ -399,6 +455,57 @@ $("#new-period-form").addEventListener("submit", async (event) => { event.preven
 $("#payroll-table").addEventListener("click", async (event) => { const view = event.target.closest("[data-payroll-view]"); const calculate = event.target.closest("[data-payroll-calculate]"); const approve = event.target.closest("[data-payroll-approve]"); try { if (view) await viewPayroll(view.dataset.payrollView); if (calculate) { await api(`/api/payroll/periods/${calculate.dataset.payrollCalculate}/calculate`, { method: "POST" }); toast("Planilla calculada."); await loadPayroll(); await viewPayroll(calculate.dataset.payrollCalculate); } if (approve) { await api(`/api/payroll/periods/${approve.dataset.payrollApprove}/approve`, { method: "POST" }); toast("Planilla aprobada."); await loadPayroll(); } } catch (error) { toast(error.message, true); } });
 
 $("#show-new-user").addEventListener("click", () => { $("#new-user-form").hidden = false; });
-$("#new-user-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { const employee = values.employeeCode ? { code: values.employeeCode, position: values.position || roleNames[values.role], payType: values.payType || "hourly", hourlyRate: Number(values.hourlyRate || 0), monthlySalary: Number(values.monthlySalary || 0), overtimeMultiplier: 1.5 } : undefined; await api("/api/users", { method: "POST", body: JSON.stringify({ email: values.email, password: values.password, fullName: values.fullName, role: values.role, employee }) }); form.reset(); form.hidden = true; toast("Usuario creado."); await loadUsers(); } catch (error) { toast(error.message, true); } });
+$("#new-user-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  const employee = values.employeeCode ? {
+    code: values.employeeCode,
+    position: values.position || roleNames[values.role],
+    payType: values.payType || "hourly",
+    hourlyRate: Number(values.hourlyRate || 0),
+    overtimeMultiplier: 1.5
+  } : undefined;
+  const terminal = { enabled: form.elements.terminalEnabled.checked, name: values.terminalName || null };
+  try {
+    await api("/api/users", { method: "POST", body: JSON.stringify({ username: values.username, password: values.password, fullName: values.fullName, role: values.role, employee, terminal }) });
+    form.reset();
+    form.hidden = true;
+    toast("Usuario creado.");
+    await loadUsers();
+  } catch (error) { toast(error.message, true); }
+});
+$("#users-table").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-edit-user]");
+  if (button) openUserEditor(button.dataset.editUser);
+});
+$("#edit-user-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") return $("#edit-user-dialog").close();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  const employee = values.employeeCode ? {
+    code: values.employeeCode,
+    position: values.position || roleNames[values.role],
+    payType: values.payType || "hourly",
+    hourlyRate: Number(values.hourlyRate || 0),
+    overtimeMultiplier: 1.5
+  } : undefined;
+  const payload = {
+    username: values.username,
+    fullName: values.fullName,
+    role: values.role,
+    status: values.status,
+    employee,
+    terminal: { enabled: form.elements.terminalEnabled.checked, name: values.terminalName || null }
+  };
+  if (values.password) payload.password = values.password;
+  try {
+    await api(`/api/users/${values.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    $("#edit-user-dialog").close();
+    toast("Usuario actualizado.");
+    await loadUsers();
+  } catch (error) { toast(error.message, true); }
+});
 
 initialize();
