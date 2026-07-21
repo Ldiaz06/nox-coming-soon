@@ -12,8 +12,20 @@ function nox_config(): array
         return $config;
     }
 
-    $configPath = (string) (getenv('NOX_ADMIN_CONFIG') ?: '/home/noxpa/nox-admin-config.php');
-    if (is_file($configPath)) {
+    $explicitPath = trim((string) getenv('NOX_ADMIN_CONFIG'));
+    $configPaths = $explicitPath !== ''
+        ? [$explicitPath]
+        : [
+            // /home/{cuenta}/nox-admin-config.php, calculated from admin/app.
+            dirname(__DIR__, 3) . '/nox-admin-config.php',
+            // Protected cPanel fallback when files cannot be placed outside public_html.
+            dirname(__DIR__) . '/config/nox-admin-config.php',
+        ];
+
+    foreach ($configPaths as $configPath) {
+        if (!is_file($configPath)) {
+            continue;
+        }
         $loaded = require $configPath;
         if (!is_array($loaded)) {
             throw new RuntimeException("El archivo de configuración {$configPath} debe devolver un arreglo.");
