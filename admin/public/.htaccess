@@ -1,15 +1,2 @@
-Options -Indexes
-DirectoryIndex index.html
-
-RewriteEngine On
-
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
-RewriteRule ^ - [L]
-
-RewriteRule ^api/?(.*)$ index.php?api_path=$1 [QSA,L]
-RewriteRule ^ index.html [L]
-
-<FilesMatch "^\.">
-  Require all denied
-</FilesMatch>
+# NOX Control no depende de mod_rewrite: la interfaz usa el DirectoryIndex
+# estándar de Apache y la API utiliza index.php?api_path=...
