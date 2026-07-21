@@ -1,6 +1,25 @@
 <?php
 declare(strict_types=1);
 
+// Some shared Apache configurations ignore DirectoryIndex from .htaccess and
+// open index.php before index.html. Serve the interface in that case.
+if (!isset($_GET['api_path'])) {
+    header('Content-Type: text/html; charset=utf-8');
+    readfile(__DIR__ . '/index.html');
+    exit;
+}
+
+// Avoid an opaque parse error when the hosting account still uses legacy PHP.
+if (PHP_VERSION_ID < 80200) {
+    http_response_code(503);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'error' => 'NOX Control requiere PHP 8.2 o superior.',
+        'currentVersion' => PHP_VERSION,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 require_once dirname(__DIR__) . '/app/bootstrap.php';
 require_once dirname(__DIR__) . '/app/auth_users.php';
 require_once dirname(__DIR__) . '/app/inventory_pos.php';

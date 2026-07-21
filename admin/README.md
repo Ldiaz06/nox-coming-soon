@@ -198,12 +198,14 @@ find /home/noxpa/public_html/admin -name '*.php' -exec php -l {} \;
 Si `/api/health` devuelve 404, revise que:
 
 - el Document Root sea exactamente `/home/noxpa/public_html/admin/public`;
-- el archivo `public/.htaccess` exista;
-- Apache permita `AllowOverride` para el dominio;
-- `mod_rewrite` esté activo.
+- exista `public/api/health/index.php` en la versión desplegada;
+- se haya ejecutado `git pull --ff-only origin main` en `public_html`.
+
+La interfaz usa `index.php?api_path=...` como entrada compatible con alojamientos que deshabilitan `mod_rewrite`. El `.htaccess` conserva las rutas limpias cuando Apache permite `AllowOverride`, pero ya no es necesario para operar el panel.
 
 Si devuelve 500, revise **cPanel > Metrics > Errors** y confirme:
 
+- que el subdominio use PHP 8.2 o superior y no PHP 7.4;
 - que `/home/noxpa/nox-admin-config.php` exista y tenga valores reales;
 - que `pdo_mysql` esté activo;
 - que el usuario MySQL esté asociado a la base;

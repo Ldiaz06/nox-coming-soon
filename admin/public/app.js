@@ -37,7 +37,11 @@ async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body) headers["Content-Type"] = "application/json";
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.csrf) headers["X-CSRF-Token"] = state.csrf;
-  const response = await fetch(path, {
+  const requested = new URL(path, window.location.origin);
+  const endpoint = new URL("index.php", document.baseURI);
+  endpoint.searchParams.set("api_path", requested.pathname.replace(/^\/api\/?/, ""));
+  requested.searchParams.forEach((value, key) => endpoint.searchParams.append(key, value));
+  const response = await fetch(endpoint, {
     credentials: "same-origin",
     ...options,
     headers
