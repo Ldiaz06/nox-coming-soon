@@ -9,9 +9,9 @@ return [
     'db' => [
         'host' => 'localhost',
         'port' => 3306,
-        // cPanel suele anteponer el usuario de la cuenta a estos nombres.
-        'name' => 'noxpa_nox_admin',
-        'user' => 'noxpa_nox_app',
+        // Nombres finales asignados en cPanel para NOX Panamá.
+        'name' => 'noxpana_noxpa',
+        'user' => 'noxpana_noxpa',
         'password' => 'REEMPLACE_CON_UNA_CLAVE_LARGA_Y_UNICA',
     ],
 

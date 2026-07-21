@@ -65,17 +65,17 @@ No es necesario editar manualmente el VirtualHost cuando cPanel administra Apach
 
 ## 3. Crear la base MySQL en cPanel
 
-En **cPanel > MySQL Databases**:
+En **cPanel > MySQL Databases**, confirme que estén creados y asociados:
 
-1. cree una base llamada `nox_admin`;
-2. cree un usuario llamado `nox_app` con una contraseña larga y única;
-3. agregue ese usuario a la base y marque **ALL PRIVILEGES**.
+1. base de datos `noxpana_noxpa`;
+2. usuario MySQL `noxpana_noxpa`;
+3. usuario agregado a la base con **ALL PRIVILEGES**.
 
 cPanel suele agregar el prefijo de la cuenta. Los nombres finales pueden ser:
 
 ```text
-Base: noxpa_nox_admin
-Usuario: noxpa_nox_app
+Base: noxpana_noxpa
+Usuario: noxpana_noxpa
 ```
 
 Use siempre los nombres finales que muestre cPanel.
@@ -91,7 +91,7 @@ El esquema crea únicamente las tablas dentro de la base seleccionada; no intent
 También puede importarlo desde Terminal, reemplazando el usuario si cPanel asignó otro nombre:
 
 ```bash
-mysql -u noxpa_nox_app -p noxpa_nox_admin < /home/noxpa/public_html/admin/db/schema.sql
+mysql -u noxpana_noxpa -p noxpana_noxpa < /home/noxpa/public_html/admin/db/schema.sql
 ```
 
 ## 4. Crear la configuración privada
@@ -110,8 +110,8 @@ Edite estos valores con los nombres exactos de cPanel:
 'db' => [
     'host' => 'localhost',
     'port' => 3306,
-    'name' => 'noxpa_nox_admin',
-    'user' => 'noxpa_nox_app',
+    'name' => 'noxpana_noxpa',
+    'user' => 'noxpana_noxpa',
     'password' => 'SU_CONTRASENA_MYSQL',
 ],
 ```
