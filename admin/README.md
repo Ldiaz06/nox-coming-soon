@@ -1,6 +1,6 @@
 # NOX Control — despliegue en CentOS/cPanel
 
-Aplicación privada de administración para NOX Panamá. Funciona con PHP 8.2+, Apache 2.4 y MySQL 8.0+. No usa Node.js, npm ni Composer.
+Aplicación privada de administración para NOX Panamá. Funciona con PHP 7.4.32 o superior, Apache 2.4 y MySQL 8.0+. No usa Node.js, npm ni Composer.
 
 La carpeta pública del sitio principal es:
 
@@ -33,7 +33,7 @@ Nunca configure `/home/noxpa/public_html/admin` como raíz pública del subdomin
 
 ## 1. Comprobar PHP
 
-En **cPanel > MultiPHP Manager**, asigne PHP 8.2 o una versión posterior a `admin.noxpanama.com`.
+En **cPanel > MultiPHP Manager**, confirme que `admin.noxpanama.com` use PHP 7.4.32 o una versión posterior.
 
 En **cPanel > Select PHP Version** o desde WHM, confirme que estén activos:
 
@@ -205,7 +205,7 @@ La interfaz usa `index.php?api_path=...` como entrada compatible con alojamiento
 
 Si devuelve 500, revise **cPanel > Metrics > Errors** y confirme:
 
-- que el subdominio use PHP 8.2 o superior y no PHP 7.4;
+- que el subdominio use PHP 7.4.32 o superior;
 - que `/home/noxpa/nox-admin-config.php` exista y tenga valores reales;
 - que `pdo_mysql` esté activo;
 - que el usuario MySQL esté asociado a la base;
@@ -235,6 +235,8 @@ Antes de actualizar:
 5. pruebe `/api/health`, inicio de sesión, una venta y un cierre de caja.
 
 Haga respaldos diarios de la base y pruebe periódicamente una restauración.
+
+PHP 7.4 se admite para el servidor actual, pero ya no recibe mantenimiento oficial. Actualice a una versión vigente cuando el proveedor lo permita, especialmente porque el panel procesa ventas, inventario y planilla.
 
 ## Nota sobre planilla
 

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function inventory_items(array $params = []): never
+function inventory_items(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
@@ -12,7 +12,7 @@ function inventory_items(array $params = []): never
     json_response(['items' => $rows]);
 }
 
-function inventory_item_create(array $params = []): never
+function inventory_item_create(array $params = [])
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
@@ -53,7 +53,7 @@ function inventory_item_create(array $params = []): never
     json_response(['id' => $id], 201);
 }
 
-function inventory_product_create(array $params = []): never
+function inventory_product_create(array $params = [])
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
@@ -106,7 +106,7 @@ function inventory_product_create(array $params = []): never
     json_response(['id' => $id], 201);
 }
 
-function inventory_movement_create(array $params = []): never
+function inventory_movement_create(array $params = [])
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
@@ -148,7 +148,7 @@ function inventory_movement_create(array $params = []): never
     json_response($result, 201);
 }
 
-function inventory_purchase_create(array $params = []): never
+function inventory_purchase_create(array $params = [])
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
@@ -159,7 +159,7 @@ function inventory_purchase_create(array $params = []): never
     $purchasedAt = value_string($body, 'purchasedAt', 10, 40) ?? '';
     try {
         $purchasedDate = new DateTimeImmutable($purchasedAt);
-    } catch (Throwable) {
+    } catch (Throwable $error) {
         throw new ApiError('La fecha de compra no es válida.');
     }
     $lines = $body['items'] ?? null;
@@ -207,7 +207,7 @@ function inventory_purchase_create(array $params = []): never
     json_response(['id' => $id], 201);
 }
 
-function inventory_movements(array $params = []): never
+function inventory_movements(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $limit = max(1, min((int) ($_GET['limit'] ?? 100), 500));
@@ -222,7 +222,7 @@ function inventory_movements(array $params = []): never
     json_response(['movements' => $statement->fetchAll()]);
 }
 
-function pos_products(array $params = []): never
+function pos_products(array $params = [])
 {
     require_auth();
     $rows = db()->query(
@@ -238,7 +238,7 @@ function pos_products(array $params = []): never
     json_response(['products' => $rows]);
 }
 
-function pos_sale_create(array $params = []): never
+function pos_sale_create(array $params = [])
 {
     require_csrf();
     $user = require_auth();
@@ -356,7 +356,7 @@ function pos_sale_create(array $params = []): never
     json_response($result, 201);
 }
 
-function pos_sale_void(array $params): never
+function pos_sale_void(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
@@ -390,7 +390,7 @@ function pos_sale_void(array $params): never
     no_content();
 }
 
-function pos_sales(array $params = []): never
+function pos_sales(array $params = [])
 {
     $user = require_auth();
     $limit = max(1, min((int) ($_GET['limit'] ?? 50), 200));

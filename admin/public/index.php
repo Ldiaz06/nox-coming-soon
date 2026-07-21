@@ -10,11 +10,11 @@ if (!isset($_GET['api_path'])) {
 }
 
 // Avoid an opaque parse error when the hosting account still uses legacy PHP.
-if (PHP_VERSION_ID < 80200) {
+if (PHP_VERSION_ID < 70400) {
     http_response_code(503);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
-        'error' => 'NOX Control requiere PHP 8.2 o superior.',
+        'error' => 'NOX Control requiere PHP 7.4 o superior.',
         'currentVersion' => PHP_VERSION,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
@@ -39,7 +39,7 @@ try {
     dispatch_routes($method, $path);
 } catch (ApiError $error) {
     json_response(['error' => $error->getMessage()], $error->status);
-} catch (JsonException) {
+} catch (JsonException $error) {
     json_response(['error' => 'El contenido JSON no es válido.'], 400);
 } catch (Throwable $error) {
     error_log($error->__toString());

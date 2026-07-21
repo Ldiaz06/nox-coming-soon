@@ -44,7 +44,7 @@ add_route('GET', 'payroll/periods/{id}/entries', 'payroll_entries');
 add_route('PATCH', 'payroll/entries/{id}', 'payroll_entry_update');
 add_route('POST', 'payroll/periods/{id}/approve', 'payroll_approve');
 
-add_route('GET', 'health', static function (): never {
+add_route('GET', 'health', static function () {
     db()->query('SELECT 1');
     json_response(['ok' => true, 'service' => 'nox-admin-php']);
 });

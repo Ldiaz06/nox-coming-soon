@@ -3,13 +3,16 @@ declare(strict_types=1);
 
 final class ApiError extends RuntimeException
 {
-    public function __construct(string $message, public readonly int $status = 400)
+    public int $status;
+
+    public function __construct(string $message, int $status = 400)
     {
+        $this->status = $status;
         parent::__construct($message);
     }
 }
 
-function json_response(array $data = [], int $status = 200): never
+function json_response(array $data = [], int $status = 200)
 {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
@@ -17,7 +20,7 @@ function json_response(array $data = [], int $status = 200): never
     exit;
 }
 
-function no_content(): never
+function no_content()
 {
     http_response_code(204);
     exit;
@@ -79,7 +82,7 @@ function path_id(array $params, string $key = 'id'): int
     return (int) $value;
 }
 
-function require_choice(mixed $value, array $choices, string $field): string
+function require_choice($value, array $choices, string $field): string
 {
     $value = (string) $value;
     if (!in_array($value, $choices, true)) {
@@ -173,7 +176,7 @@ function add_route(string $method, string $pattern, callable $handler): void
     $GLOBALS['routes'][] = [$method, $pattern, $handler];
 }
 
-function dispatch_routes(string $method, string $path): never
+function dispatch_routes(string $method, string $path)
 {
     foreach ($GLOBALS['routes'] ?? [] as [$routeMethod, $pattern, $handler]) {
         if ($routeMethod !== $method) {

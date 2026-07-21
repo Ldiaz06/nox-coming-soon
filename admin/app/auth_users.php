@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function auth_login(array $params = []): never
+function auth_login(array $params = [])
 {
     $body = request_body();
     $email = strtolower(value_string($body, 'email', 5, 190) ?? '');
@@ -48,7 +48,7 @@ function auth_login(array $params = []): never
     ]);
 }
 
-function auth_logout(array $params = []): never
+function auth_logout(array $params = [])
 {
     require_csrf();
     $_SESSION = [];
@@ -60,7 +60,7 @@ function auth_logout(array $params = []): never
     no_content();
 }
 
-function auth_me(array $params = []): never
+function auth_me(array $params = [])
 {
     $user = require_auth();
     json_response([
@@ -74,7 +74,7 @@ function auth_me(array $params = []): never
     ]);
 }
 
-function users_list(array $params = []): never
+function users_list(array $params = [])
 {
     require_roles(['admin']);
     $rows = db()->query(
@@ -85,7 +85,7 @@ function users_list(array $params = []): never
     json_response(['users' => $rows]);
 }
 
-function users_create(array $params = []): never
+function users_create(array $params = [])
 {
     require_csrf();
     $actor = require_roles(['admin']);
@@ -131,7 +131,7 @@ function users_create(array $params = []): never
     json_response(['id' => $id], 201);
 }
 
-function users_update(array $params): never
+function users_update(array $params)
 {
     require_csrf();
     $actor = require_roles(['admin']);

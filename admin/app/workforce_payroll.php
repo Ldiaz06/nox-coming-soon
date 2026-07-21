@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function workforce_employees(array $params = []): never
+function workforce_employees(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
@@ -14,7 +14,7 @@ function workforce_employees(array $params = []): never
     json_response(['employees' => $rows]);
 }
 
-function workforce_employee_create(array $params = []): never
+function workforce_employee_create(array $params = [])
 {
     require_csrf();
     require_roles(['admin']);
@@ -42,7 +42,7 @@ function workforce_employee_create(array $params = []): never
     json_response(['id' => (int) db()->lastInsertId()], 201);
 }
 
-function workforce_clock(array $params = []): never
+function workforce_clock(array $params = [])
 {
     $user = require_auth();
     $employee = db()->prepare("SELECT id FROM employees WHERE user_id = ? AND status = 'active'");
@@ -57,7 +57,7 @@ function workforce_clock(array $params = []): never
     json_response(['employee' => ['id' => (int) $employeeId], 'openEntry' => $entry->fetch() ?: null]);
 }
 
-function workforce_clock_in(array $params = []): never
+function workforce_clock_in(array $params = [])
 {
     require_csrf();
     $user = require_auth();
@@ -77,7 +77,7 @@ function workforce_clock_in(array $params = []): never
     json_response(['id' => $id], 201);
 }
 
-function workforce_clock_out(array $params = []): never
+function workforce_clock_out(array $params = [])
 {
     require_csrf();
     $user = require_auth();
@@ -100,7 +100,7 @@ function workforce_clock_out(array $params = []): never
     no_content();
 }
 
-function workforce_hours(array $params = []): never
+function workforce_hours(array $params = [])
 {
     $user = require_auth();
     $today = date('Y-m-d');
@@ -123,7 +123,7 @@ function workforce_hours(array $params = []): never
     json_response(['entries' => $statement->fetchAll()]);
 }
 
-function workforce_hours_approve(array $params): never
+function workforce_hours_approve(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
@@ -134,7 +134,7 @@ function workforce_hours_approve(array $params): never
     no_content();
 }
 
-function payroll_periods(array $params = []): never
+function payroll_periods(array $params = [])
 {
     require_roles(['admin']);
     $rows = db()->query(
@@ -147,7 +147,7 @@ function payroll_periods(array $params = []): never
     json_response(['periods' => $rows]);
 }
 
-function payroll_period_create(array $params = []): never
+function payroll_period_create(array $params = [])
 {
     require_csrf();
     $user = require_roles(['admin']);
@@ -168,7 +168,7 @@ function payroll_period_create(array $params = []): never
     json_response(['id' => (int) db()->lastInsertId()], 201);
 }
 
-function payroll_calculate(array $params): never
+function payroll_calculate(array $params)
 {
     require_csrf();
     $user = require_roles(['admin']);
@@ -216,7 +216,7 @@ function payroll_calculate(array $params): never
     json_response($result);
 }
 
-function payroll_entries(array $params): never
+function payroll_entries(array $params)
 {
     require_roles(['admin']);
     $periodId = path_id($params);
@@ -232,7 +232,7 @@ function payroll_entries(array $params): never
     json_response(['entries' => $statement->fetchAll()]);
 }
 
-function payroll_entry_update(array $params): never
+function payroll_entry_update(array $params)
 {
     require_csrf();
     $user = require_roles(['admin']);
@@ -259,7 +259,7 @@ function payroll_entry_update(array $params): never
     no_content();
 }
 
-function payroll_approve(array $params): never
+function payroll_approve(array $params)
 {
     require_csrf();
     $user = require_roles(['admin']);

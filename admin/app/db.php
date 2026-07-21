@@ -37,7 +37,7 @@ function db(): PDO
     return $pdo;
 }
 
-function transaction(callable $work): mixed
+function transaction(callable $work)
 {
     $pdo = db();
     $pdo->beginTransaction();

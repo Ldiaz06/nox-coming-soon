@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-function cash_terminals(array $params = []): never
+function cash_terminals(array $params = [])
 {
     require_auth();
     $rows = db()->query("SELECT id, name, location_name AS locationName FROM terminals WHERE status = 'active' ORDER BY name")->fetchAll();
     json_response(['terminals' => $rows]);
 }
 
-function cash_sessions(array $params = []): never
+function cash_sessions(array $params = [])
 {
     $user = require_auth();
     $sql = "SELECT c.id, c.terminal_id AS terminalId, t.name AS terminalName, c.opening_amount AS openingAmount,
@@ -26,7 +26,7 @@ function cash_sessions(array $params = []): never
     json_response(['sessions' => $statement->fetchAll()]);
 }
 
-function cash_open(array $params = []): never
+function cash_open(array $params = [])
 {
     require_csrf();
     $user = require_auth();
@@ -52,7 +52,7 @@ function cash_open(array $params = []): never
     json_response(['id' => $id], 201);
 }
 
-function cash_close(array $params): never
+function cash_close(array $params)
 {
     require_csrf();
     $user = require_auth();
@@ -93,7 +93,7 @@ function report_range(string $period, ?string $anchorValue): array
         $anchor = $anchorValue && preg_match('/^\d{4}-\d{2}-\d{2}$/', $anchorValue)
             ? new DateTimeImmutable($anchorValue . ' 12:00:00')
             : new DateTimeImmutable('today');
-    } catch (Throwable) {
+    } catch (Throwable $error) {
         throw new ApiError('La fecha del reporte no es válida.');
     }
     if ($period === 'daily') {
@@ -116,7 +116,7 @@ function report_range(string $period, ?string $anchorValue): array
     return ['start' => $start->format('Y-m-d H:i:s'), 'end' => $end->format('Y-m-d H:i:s')];
 }
 
-function reports_summary(array $params = []): never
+function reports_summary(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $period = (string) ($_GET['period'] ?? 'daily');
@@ -170,7 +170,7 @@ function reports_summary(array $params = []): never
     ]);
 }
 
-function reports_low_stock(array $params = []): never
+function reports_low_stock(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(

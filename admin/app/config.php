@@ -43,7 +43,7 @@ function nox_config(): array
     return $config;
 }
 
-function nox_config_value(string $path, mixed $default = null): mixed
+function nox_config_value(string $path, $default = null)
 {
     $value = nox_config();
     foreach (explode('.', $path) as $segment) {
