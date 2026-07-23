@@ -142,23 +142,8 @@ Contraseña inicial: Nox12345
 Cambie esa contraseña inmediatamente después del primer inicio de sesión.
 Si ya existe al menos un usuario, el instalador no crea ni modifica ninguna
 cuenta o contraseña.
-
-El script manual continúa disponible como alternativa. En
-`/home/noxpana/nox-admin-config.php`, defina temporalmente `initial_admin` y
-ejecute:
-
-```bash
-php /home/noxpana/public_html/admin/scripts/create-admin.php
-```
-
-Debe aparecer:
-
-```text
-Administrador creado o actualizado: admin
-```
-
-Después deje vacía la contraseña de `initial_admin`. La contraseña de la cuenta
-se almacena en MySQL mediante un hash seguro, nunca como texto legible.
+La contraseña se almacena en MySQL mediante un hash seguro, nunca como texto
+legible.
 
 ## 6. Permisos
 
@@ -246,10 +231,9 @@ El instalador único también:
 - crea una caja individual para cada usuario activo existente.
 
 No es necesario importar por separado los archivos históricos de
-`admin/db/migrations`. Después de actualizar una instalación antigua, el
-usuario anterior sigue siendo el mismo texto que se utilizaba como correo.
-Inicie sesión con ese valor y use **Usuarios > Editar** para cambiarlo, por
-ejemplo, a `admin`.
+Después de actualizar una instalación antigua, el usuario anterior sigue siendo
+el mismo texto que se utilizaba como correo. Inicie sesión con ese valor y use
+**Usuarios > Editar** para cambiarlo, por ejemplo, a `admin`.
 
 Haga respaldos diarios de la base y pruebe periódicamente una restauración.
 

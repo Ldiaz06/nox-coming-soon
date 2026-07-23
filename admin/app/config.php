@@ -45,11 +45,6 @@ function nox_config(): array
             'user' => getenv('DB_USER') ?: '',
             'password' => getenv('DB_PASSWORD') ?: '',
         ],
-        'initial_admin' => [
-            'username' => getenv('INITIAL_ADMIN_USERNAME') ?: (getenv('INITIAL_ADMIN_EMAIL') ?: ''),
-            'password' => getenv('INITIAL_ADMIN_PASSWORD') ?: '',
-            'name' => getenv('INITIAL_ADMIN_NAME') ?: 'Administrador NOX',
-        ],
     ];
 
     return $config;

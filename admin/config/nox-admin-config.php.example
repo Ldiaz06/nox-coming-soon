@@ -14,10 +14,4 @@ return [
         'user' => 'noxpana_noxpa',
         'password' => 'REEMPLACE_CON_UNA_CLAVE_LARGA_Y_UNICA',
     ],
-
-    'initial_admin' => [
-        'username' => 'admin',
-        'password' => 'REEMPLACE_CON_UNA_CLAVE_DE_4_CARACTERES_O_MAS',
-        'name' => 'Administrador NOX',
-    ],
 ];
