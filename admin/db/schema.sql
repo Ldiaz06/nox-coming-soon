@@ -1,12 +1,31 @@
--- NOX Control — instalador y actualizador idempotente de MySQL
+-- NOX Control — instalador completo e idempotente de MySQL
 -- Compatible con MySQL 8.0+ y phpMyAdmin.
 --
--- Puede ejecutar este archivo sobre una base vacía o volver a ejecutarlo sobre
--- una instalación existente. No elimina tablas ni registros. Antes de aplicarlo
--- en producción, conserve siempre un respaldo reciente.
+-- Crea la base noxpana_noxpa cuando no existe, la selecciona y prepara todas
+-- las tablas del sistema. También puede volver a ejecutarse sobre una
+-- instalación existente: no elimina tablas ni registros. Antes de aplicarlo en
+-- producción, conserve siempre un respaldo reciente.
 
 SET NAMES utf8mb4;
 SET time_zone = '-05:00';
+
+-- Si la base ya existe, no se solicita permiso global para volver a crearla.
+-- Si no existe, la cuenta que ejecuta este archivo necesita CREATE DATABASE.
+SET @nox_create_database_sql = IF(
+  EXISTS(
+    SELECT 1
+    FROM information_schema.schemata
+    WHERE schema_name = 'noxpana_noxpa'
+  ),
+  'SELECT 1',
+  'CREATE DATABASE `noxpana_noxpa` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+);
+
+PREPARE nox_create_database_statement FROM @nox_create_database_sql;
+EXECUTE nox_create_database_statement;
+DEALLOCATE PREPARE nox_create_database_statement;
+
+USE `noxpana_noxpa`;
 
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

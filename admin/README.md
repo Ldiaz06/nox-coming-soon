@@ -80,23 +80,33 @@ Base: noxpana_noxpa
 Usuario: noxpana_noxpa
 ```
 
-Use siempre los nombres finales que muestre cPanel.
+Use siempre los nombres finales que muestre cPanel. En servidores administrados
+directamente, el instalador también puede crear automáticamente la base cuando
+se ejecuta con una cuenta MySQL que tenga permiso `CREATE DATABASE`.
 
-En **phpMyAdmin** seleccione esa base e importe el único instalador:
+En **phpMyAdmin**, importe el único instalador:
 
 ```text
 /home/noxpana/public_html/admin/db/schema.sql
 ```
 
-`schema.sql` sirve tanto para una instalación nueva como para actualizar una
-existente. Puede ejecutarlo más de una vez: conserva los registros, crea las
-tablas e índices que falten y aplica solamente las adaptaciones pendientes de
-usuarios, planilla y cajas.
+`schema.sql` crea `noxpana_noxpa` si no existe, la selecciona y prepara el
+sistema completo. También sirve para actualizar una instalación existente.
+Puede ejecutarlo más de una vez: conserva los registros, crea las tablas e
+índices que falten y aplica solamente las adaptaciones pendientes de usuarios,
+planilla y cajas.
 
-También puede importarlo desde Terminal, reemplazando el usuario si cPanel asignó otro nombre:
+Para crear la base desde cero mediante Terminal, use una cuenta MySQL con
+permiso para crear bases:
 
 ```bash
-mysql -u noxpana_noxpa -p noxpana_noxpa < /home/noxpana/public_html/admin/db/schema.sql
+mysql -u root -p < /home/noxpana/public_html/admin/db/schema.sql
+```
+
+Si cPanel ya creó y asignó la base, puede ejecutarlo con su usuario normal:
+
+```bash
+mysql -u noxpana_noxpa -p < /home/noxpana/public_html/admin/db/schema.sql
 ```
 
 ## 4. Crear la configuración privada
