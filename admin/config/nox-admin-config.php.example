@@ -11,7 +11,7 @@ return [
         'port' => 3306,
         // Nombres finales asignados en cPanel para NOX Panamá.
         'name' => 'noxpana_noxpa',
-        'user' => 'noxpana_noxpa',
+        'user' => 'noxpana_nox_app',
         'password' => 'REEMPLACE_CON_UNA_CLAVE_LARGA_Y_UNICA',
     ],
 ];

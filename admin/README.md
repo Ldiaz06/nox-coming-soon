@@ -70,14 +70,14 @@ No es necesario editar manualmente el VirtualHost cuando cPanel administra Apach
 En **cPanel > MySQL Databases**, confirme que estén creados y asociados:
 
 1. base de datos `noxpana_noxpa`;
-2. usuario MySQL `noxpana_noxpa`;
+2. usuario MySQL `noxpana_nox_app`;
 3. usuario agregado a la base con **ALL PRIVILEGES**.
 
 cPanel suele agregar el prefijo de la cuenta. Los nombres finales pueden ser:
 
 ```text
 Base: noxpana_noxpa
-Usuario: noxpana_noxpa
+Usuario: noxpana_nox_app
 ```
 
 Use siempre los nombres finales que muestre cPanel. En servidores administrados
@@ -106,7 +106,7 @@ mysql -u root -p < /home/noxpana/public_html/admin/db/schema.sql
 Si cPanel ya creó y asignó la base, puede ejecutarlo con su usuario normal:
 
 ```bash
-mysql -u noxpana_noxpa -p < /home/noxpana/public_html/admin/db/schema.sql
+mysql -u noxpana_nox_app -p < /home/noxpana/public_html/admin/db/schema.sql
 ```
 
 ## 4. Crear la configuración privada
@@ -126,7 +126,7 @@ Edite estos valores con los nombres exactos de cPanel:
     'host' => 'localhost',
     'port' => 3306,
     'name' => 'noxpana_noxpa',
-    'user' => 'noxpana_noxpa',
+    'user' => 'noxpana_nox_app',
     'password' => 'SU_CONTRASENA_MYSQL',
 ],
 ```
