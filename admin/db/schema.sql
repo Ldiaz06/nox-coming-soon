@@ -1,3 +1,13 @@
+-- NOX Control — instalador y actualizador idempotente de MySQL
+-- Compatible con MySQL 8.0+ y phpMyAdmin.
+--
+-- Puede ejecutar este archivo sobre una base vacía o volver a ejecutarlo sobre
+-- una instalación existente. No elimina tablas ni registros. Antes de aplicarlo
+-- en producción, conserve siempre un respaldo reciente.
+
+SET NAMES utf8mb4;
+SET time_zone = '-05:00';
+
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   username VARCHAR(80) NOT NULL,
@@ -305,3 +315,254 @@ CREATE TABLE IF NOT EXISTS audit_log (
 INSERT INTO terminals (name, location_name)
 SELECT 'Caja principal', 'Bar principal'
 WHERE NOT EXISTS (SELECT 1 FROM terminals WHERE name = 'Caja principal');
+
+-- Las instalaciones anteriores usaban correo como credencial, empleados
+-- mensuales y cajas sin usuario asignado. Este procedimiento detecta el estado
+-- real de cada instalación y aplica únicamente los cambios que hagan falta.
+DROP PROCEDURE IF EXISTS nox_prepare_database;
+
+DELIMITER $$
+
+CREATE PROCEDURE nox_prepare_database()
+BEGIN
+  DECLARE column_exists INT DEFAULT 0;
+  DECLARE secondary_column_exists INT DEFAULT 0;
+  DECLARE index_exists INT DEFAULT 0;
+  DECLARE constraint_exists INT DEFAULT 0;
+
+  -- users.email -> users.username
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'users'
+    AND column_name = 'username';
+
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'users'
+    AND column_name = 'email';
+
+  IF column_exists = 0 AND secondary_column_exists = 1 THEN
+    UPDATE users
+    SET email = CONCAT('usuario-', id)
+    WHERE email IS NULL OR TRIM(email) = '';
+
+    UPDATE users
+    SET email = CONCAT(LEFT(email, 55), '-', id)
+    WHERE CHAR_LENGTH(email) > 80;
+
+    ALTER TABLE users
+      CHANGE COLUMN email username VARCHAR(80) NOT NULL;
+  ELSEIF column_exists = 0 THEN
+    ALTER TABLE users
+      ADD COLUMN username VARCHAR(80) NULL AFTER id;
+  END IF;
+
+  -- Completar nombres vacíos, limitar valores heredados y resolver duplicados
+  -- sin eliminar ninguna cuenta.
+  UPDATE users
+  SET username = CONCAT('usuario-', id)
+  WHERE username IS NULL OR TRIM(username) = '';
+
+  UPDATE users
+  SET username = CONCAT(LEFT(username, 55), '-', id)
+  WHERE CHAR_LENGTH(username) > 80;
+
+  UPDATE users duplicate_user
+  INNER JOIN users original_user
+    ON original_user.username = duplicate_user.username
+   AND original_user.id < duplicate_user.id
+  SET duplicate_user.username =
+    CONCAT(LEFT(duplicate_user.username, 55), '-', duplicate_user.id);
+
+  ALTER TABLE users
+    MODIFY COLUMN username VARCHAR(80) NOT NULL;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'users'
+    AND column_name = 'username'
+    AND non_unique = 0;
+
+  IF index_exists = 0 THEN
+    ALTER TABLE users
+      ADD UNIQUE KEY users_username_uq (username);
+  END IF;
+
+  -- login_attempts.email -> login_attempts.username
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'login_attempts'
+    AND column_name = 'username';
+
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'login_attempts'
+    AND column_name = 'email';
+
+  IF column_exists = 0 AND secondary_column_exists = 1 THEN
+    UPDATE login_attempts
+    SET email = 'desconocido'
+    WHERE email IS NULL OR TRIM(email) = '';
+
+    UPDATE login_attempts
+    SET email = LEFT(email, 80)
+    WHERE CHAR_LENGTH(email) > 80;
+
+    ALTER TABLE login_attempts
+      CHANGE COLUMN email username VARCHAR(80) NOT NULL;
+  ELSEIF column_exists = 0 THEN
+    ALTER TABLE login_attempts
+      ADD COLUMN username VARCHAR(80) NOT NULL DEFAULT 'desconocido' AFTER ip_address;
+  END IF;
+
+  UPDATE login_attempts
+  SET username = 'desconocido'
+  WHERE username IS NULL OR TRIM(username) = '';
+
+  UPDATE login_attempts
+  SET username = LEFT(username, 80)
+  WHERE CHAR_LENGTH(username) > 80;
+
+  ALTER TABLE login_attempts
+    MODIFY COLUMN username VARCHAR(80) NOT NULL;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'login_attempts'
+    AND index_name = 'login_attempts_lookup_idx';
+
+  IF index_exists = 0 THEN
+    ALTER TABLE login_attempts
+      ADD KEY login_attempts_lookup_idx (ip_address, username, attempted_at);
+  END IF;
+
+  -- Convertir la modalidad mensual heredada a quincenal. La tarifa siempre se
+  -- conserva o se calcula a partir del salario mensual usando 208 horas/mes.
+  ALTER TABLE employees
+    MODIFY COLUMN pay_type
+      ENUM('hourly', 'monthly', 'biweekly') NOT NULL DEFAULT 'hourly';
+
+  UPDATE employees
+  SET hourly_rate = CASE
+        WHEN pay_type = 'monthly'
+         AND hourly_rate = 0
+         AND monthly_salary > 0
+          THEN ROUND(monthly_salary / 208, 2)
+        ELSE hourly_rate
+      END,
+      pay_type = CASE
+        WHEN pay_type = 'monthly' THEN 'biweekly'
+        ELSE pay_type
+      END;
+
+  ALTER TABLE employees
+    MODIFY COLUMN pay_type
+      ENUM('hourly', 'biweekly') NOT NULL DEFAULT 'hourly';
+
+  -- Añadir y proteger la caja asignada por usuario.
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'terminals'
+    AND column_name = 'assigned_user_id';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE terminals
+      ADD COLUMN assigned_user_id BIGINT UNSIGNED NULL AFTER status;
+  END IF;
+
+  UPDATE terminals terminal
+  LEFT JOIN users user_account ON user_account.id = terminal.assigned_user_id
+  SET terminal.assigned_user_id = NULL
+  WHERE terminal.assigned_user_id IS NOT NULL
+    AND user_account.id IS NULL;
+
+  UPDATE terminals duplicate_terminal
+  INNER JOIN terminals original_terminal
+    ON original_terminal.assigned_user_id = duplicate_terminal.assigned_user_id
+   AND original_terminal.id < duplicate_terminal.id
+  SET duplicate_terminal.assigned_user_id = NULL
+  WHERE duplicate_terminal.assigned_user_id IS NOT NULL;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'terminals'
+    AND column_name = 'assigned_user_id'
+    AND non_unique = 0;
+
+  IF index_exists = 0 THEN
+    ALTER TABLE terminals
+      ADD UNIQUE KEY terminals_user_uq (assigned_user_id);
+  END IF;
+
+  SELECT COUNT(*) INTO constraint_exists
+  FROM information_schema.key_column_usage
+  WHERE table_schema = DATABASE()
+    AND table_name = 'terminals'
+    AND column_name = 'assigned_user_id'
+    AND referenced_table_name = 'users'
+    AND referenced_column_name = 'id';
+
+  IF constraint_exists = 0 THEN
+    ALTER TABLE terminals
+      ADD CONSTRAINT terminals_user_fk
+      FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+
+  -- Solo en una base sin usuarios se crea el acceso inicial. Nunca modifica la
+  -- contraseña ni los datos de una cuenta que ya exista.
+  INSERT INTO users
+    (username, password_hash, full_name, role, status)
+  SELECT
+    'admin',
+    '$2y$12$Fh4SPyFi.FP8EwJxggVMzu2xRC8zbPB1zqYOIsyE7vIBM9NQmyiYO',
+    'Administrador NOX',
+    'admin',
+    'active'
+  WHERE NOT EXISTS (SELECT 1 FROM users);
+
+  -- Reutilizar primero una caja nominal que esté libre y después crear las
+  -- cajas que falten. El nombre estable permite ejecutar el archivo otra vez.
+  UPDATE terminals terminal
+  INNER JOIN users user_account
+    ON terminal.name = CONCAT('Caja usuario ', user_account.id)
+  LEFT JOIN terminals owned_terminal
+    ON owned_terminal.assigned_user_id = user_account.id
+  SET terminal.assigned_user_id = user_account.id,
+      terminal.status = 'active'
+  WHERE user_account.status = 'active'
+    AND terminal.assigned_user_id IS NULL
+    AND owned_terminal.id IS NULL;
+
+  INSERT INTO terminals
+    (name, location_name, status, assigned_user_id)
+  SELECT
+    CONCAT('Caja usuario ', user_account.id),
+    'Bar principal',
+    'active',
+    user_account.id
+  FROM users user_account
+  WHERE user_account.status = 'active'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM terminals terminal
+      WHERE terminal.assigned_user_id = user_account.id
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM terminals terminal
+      WHERE terminal.name = CONCAT('Caja usuario ', user_account.id)
+    );
+END$$
+
+DELIMITER ;
+
+CALL nox_prepare_database();
+DROP PROCEDURE IF EXISTS nox_prepare_database;

@@ -82,13 +82,16 @@ Usuario: noxpana_noxpa
 
 Use siempre los nombres finales que muestre cPanel.
 
-En **phpMyAdmin** seleccione esa base e importe:
+En **phpMyAdmin** seleccione esa base e importe el único instalador:
 
 ```text
 /home/noxpana/public_html/admin/db/schema.sql
 ```
 
-El esquema crea únicamente las tablas dentro de la base seleccionada; no intenta crear otra base ni cambiarla.
+`schema.sql` sirve tanto para una instalación nueva como para actualizar una
+existente. Puede ejecutarlo más de una vez: conserva los registros, crea las
+tablas e índices que falten y aplica solamente las adaptaciones pendientes de
+usuarios, planilla y cajas.
 
 También puede importarlo desde Terminal, reemplazando el usuario si cPanel asignó otro nombre:
 
@@ -127,19 +130,22 @@ Mantenga:
 
 La aplicación detecta automáticamente el directorio de la cuenta y busca `/home/noxpana/nox-admin-config.php`. También acepta `admin/config/nox-admin-config.php` como alternativa protegida. Para otra ruta puede definir `NOX_ADMIN_CONFIG` en Apache.
 
-## 5. Crear el primer administrador
+## 5. Primer administrador
 
-En `/home/noxpana/nox-admin-config.php`, coloque temporalmente un usuario y una contraseña inicial de al menos 4 caracteres:
+Si la tabla de usuarios está vacía, `schema.sql` crea automáticamente:
 
-```php
-'initial_admin' => [
-    'username' => 'admin',
-    'password' => 'UNA_CLAVE_DE_4_CARACTERES_O_MAS',
-    'name' => 'Administrador NOX',
-],
+```text
+Usuario: admin
+Contraseña inicial: Nox12345
 ```
 
-Luego ejecute:
+Cambie esa contraseña inmediatamente después del primer inicio de sesión.
+Si ya existe al menos un usuario, el instalador no crea ni modifica ninguna
+cuenta o contraseña.
+
+El script manual continúa disponible como alternativa. En
+`/home/noxpana/nox-admin-config.php`, defina temporalmente `initial_admin` y
+ejecute:
 
 ```bash
 php /home/noxpana/public_html/admin/scripts/create-admin.php
@@ -151,13 +157,8 @@ Debe aparecer:
 Administrador creado o actualizado: admin
 ```
 
-Después borre la contraseña inicial del archivo, dejándola vacía:
-
-```php
-'password' => '',
-```
-
-La contraseña del usuario ya quedó almacenada en MySQL mediante un hash seguro.
+Después deje vacía la contraseña de `initial_admin`. La contraseña de la cuenta
+se almacena en MySQL mediante un hash seguro, nunca como texto legible.
 
 ## 6. Permisos
 
@@ -233,24 +234,22 @@ Antes de actualizar:
 1. exporte la base desde phpMyAdmin o el sistema de respaldos de cPanel;
 2. conserve `/home/noxpana/nox-admin-config.php` fuera de `public_html`;
 3. reemplace los archivos de `admin/`;
-4. aplique solo las migraciones SQL nuevas que correspondan;
+4. vuelva a importar `admin/db/schema.sql`;
 5. pruebe `/api/health`, inicio de sesión, una venta y un cierre de caja.
 
-### Migración de usuarios y cajas — julio de 2026
+### Actualización automática de instalaciones anteriores
 
-Las instalaciones creadas antes de esta versión deben importar una sola vez, desde phpMyAdmin:
-
-```text
-/home/noxpana/public_html/admin/db/migrations/2026-07-21-usernames-user-cashboxes.sql
-```
-
-La migración:
+El instalador único también:
 
 - convierte el correo existente en nombre de usuario sin borrar la cuenta ni cambiar su contraseña;
 - convierte empleados mensuales a modalidad quincenal conservando o calculando su tarifa por hora;
 - crea una caja individual para cada usuario activo existente.
 
-Después de migrar, el usuario anterior sigue siendo el mismo texto que se utilizaba como correo. Inicie sesión con ese valor y use **Usuarios > Editar** para cambiarlo, por ejemplo, a `admin`.
+No es necesario importar por separado los archivos históricos de
+`admin/db/migrations`. Después de actualizar una instalación antigua, el
+usuario anterior sigue siendo el mismo texto que se utilizaba como correo.
+Inicie sesión con ese valor y use **Usuarios > Editar** para cambiarlo, por
+ejemplo, a `admin`.
 
 Haga respaldos diarios de la base y pruebe periódicamente una restauración.
 
