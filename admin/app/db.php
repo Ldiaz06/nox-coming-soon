@@ -37,6 +37,62 @@ function db(): PDO
     return $pdo;
 }
 
+function database_health_diagnostic(Throwable $error): array
+{
+    if (!in_array('mysql', PDO::getAvailableDrivers(), true)) {
+        return [
+            'code' => 'PDO_MYSQL_MISSING',
+            'message' => 'La extensión pdo_mysql no está habilitada en PHP.',
+        ];
+    }
+
+    if ($error instanceof RuntimeException && strpos($error->getMessage(), 'Falta la configuración ') === 0) {
+        return [
+            'code' => 'DATABASE_CONFIG_MISSING',
+            'message' => $error->getMessage(),
+        ];
+    }
+
+    $nativeCode = 0;
+    if ($error instanceof PDOException && isset($error->errorInfo[1])) {
+        $nativeCode = (int) $error->errorInfo[1];
+    } elseif (is_numeric($error->getCode())) {
+        $nativeCode = (int) $error->getCode();
+    }
+
+    $diagnostics = [
+        1044 => [
+            'code' => 'DATABASE_ACCESS_DENIED',
+            'message' => 'El usuario MySQL no tiene permisos sobre la base de datos.',
+        ],
+        1045 => [
+            'code' => 'DATABASE_AUTH_FAILED',
+            'message' => 'El usuario o la contraseña de MySQL no son correctos.',
+        ],
+        1049 => [
+            'code' => 'DATABASE_NOT_FOUND',
+            'message' => 'La base de datos configurada no existe.',
+        ],
+        2002 => [
+            'code' => 'DATABASE_UNREACHABLE',
+            'message' => 'No fue posible comunicarse con el servidor MySQL.',
+        ],
+        2006 => [
+            'code' => 'DATABASE_SERVER_GONE',
+            'message' => 'El servidor MySQL cerró la conexión.',
+        ],
+        2013 => [
+            'code' => 'DATABASE_CONNECTION_LOST',
+            'message' => 'Se perdió la conexión con MySQL durante la consulta.',
+        ],
+    ];
+
+    return $diagnostics[$nativeCode] ?? [
+        'code' => 'DATABASE_CONNECTION_FAILED',
+        'message' => 'MySQL no pudo completar la comprobación de conexión.',
+    ];
+}
+
 function transaction(callable $work)
 {
     $pdo = db();

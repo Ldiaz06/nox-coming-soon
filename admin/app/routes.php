@@ -45,6 +45,15 @@ add_route('PATCH', 'payroll/entries/{id}', 'payroll_entry_update');
 add_route('POST', 'payroll/periods/{id}/approve', 'payroll_approve');
 
 add_route('GET', 'health', static function () {
-    db()->query('SELECT 1');
-    json_response(['ok' => true, 'service' => 'nox-admin-php']);
+    try {
+        db()->query('SELECT 1');
+        json_response(['ok' => true, 'service' => 'nox-admin-php']);
+    } catch (Throwable $error) {
+        error_log($error->__toString());
+        json_response([
+            'ok' => false,
+            'service' => 'nox-admin-php',
+            'diagnostic' => database_health_diagnostic($error),
+        ], 503);
+    }
 });

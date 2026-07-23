@@ -201,13 +201,19 @@ Si `/api/health` devuelve 404, revise que:
 
 La interfaz usa `index.php?api_path=...` como entrada compatible con alojamientos que deshabilitan `mod_rewrite`. El `.htaccess` conserva las rutas limpias cuando Apache permite `AllowOverride`, pero ya no es necesario para operar el panel.
 
-Si devuelve 500, revise **cPanel > Metrics > Errors** y confirme:
+Si devuelve 503, el campo `diagnostic.code` identifica la causa sin exponer
+credenciales. Revise **cPanel > Metrics > Errors** y confirme:
 
 - que el subdominio use PHP 7.4.32 o superior;
 - que `/home/noxpana/nox-admin-config.php` o `admin/config/nox-admin-config.php` exista y tenga valores reales;
 - que `pdo_mysql` esté activo;
 - que el usuario MySQL esté asociado a la base;
 - que los nombres de base y usuario incluyan el prefijo real de cPanel.
+
+Los códigos más habituales son `DATABASE_AUTH_FAILED` para usuario o contraseña
+incorrectos, `DATABASE_ACCESS_DENIED` para permisos faltantes,
+`DATABASE_NOT_FOUND` para una base inexistente y `PDO_MYSQL_MISSING` cuando falta
+la extensión de PHP.
 
 ## Servidor CentOS sin cPanel
 
