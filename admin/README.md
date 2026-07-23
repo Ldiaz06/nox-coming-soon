@@ -123,7 +123,7 @@ Edite estos valores con los nombres exactos de cPanel:
 
 ```php
 'db' => [
-    'host' => 'localhost',
+    'host' => '127.0.0.1',
     'port' => 3306,
     'name' => 'noxpana_noxpa',
     'user' => 'noxpana_nox_app',
@@ -213,7 +213,8 @@ credenciales. Revise **cPanel > Metrics > Errors** y confirme:
 Los códigos más habituales son `DATABASE_AUTH_FAILED` para usuario o contraseña
 incorrectos, `DATABASE_ACCESS_DENIED` para permisos faltantes,
 `DATABASE_NOT_FOUND` para una base inexistente y `PDO_MYSQL_MISSING` cuando falta
-la extensión de PHP.
+la extensión de PHP. Se recomienda `127.0.0.1` como host para evitar diferencias
+entre el socket local configurado en PHP y el utilizado por MySQL.
 
 ## Servidor CentOS sin cPanel
 

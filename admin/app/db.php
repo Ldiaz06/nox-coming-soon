@@ -26,13 +26,33 @@ function db(): PDO
     $port = (int) nox_config_value('db.port', 3306);
     $name = (string) nox_config_value('db.name');
     $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
-
-    $pdo = new PDO($dsn, (string) nox_config_value('db.user'), (string) nox_config_value('db.password'), [
+    $username = (string) nox_config_value('db.user');
+    $password = (string) nox_config_value('db.password');
+    $options = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
         PDO::ATTR_STRINGIFY_FETCHES => false,
-    ]);
+    ];
+
+    try {
+        $pdo = new PDO($dsn, $username, $password, $options);
+    } catch (PDOException $error) {
+        $nativeCode = isset($error->errorInfo[1])
+            ? (int) $error->errorInfo[1]
+            : (is_numeric($error->getCode()) ? (int) $error->getCode() : 0);
+
+        // En CentOS/cPanel, "localhost" puede apuntar a un socket distinto del
+        // configurado por MySQL. Si ese socket falla, usar TCP local evita
+        // depender de la ruta interna del socket.
+        if (strtolower($host) !== 'localhost' || $nativeCode !== 2002) {
+            throw $error;
+        }
+
+        $tcpDsn = "mysql:host=127.0.0.1;port={$port};dbname={$name};charset=utf8mb4";
+        $pdo = new PDO($tcpDsn, $username, $password, $options);
+    }
+
     $pdo->exec("SET time_zone = '-05:00'");
     return $pdo;
 }
