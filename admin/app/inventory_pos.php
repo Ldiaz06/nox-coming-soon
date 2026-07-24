@@ -1,12 +1,23 @@
 <?php
 declare(strict_types=1);
 
+function suggested_product_price(float $recipeCost, float $targetMargin): float
+{
+    if ($recipeCost <= 0) {
+        return 0.0;
+    }
+    $margin = max(0.10, min(0.95, $targetMargin));
+    return money_round(ceil(($recipeCost / (1 - $margin)) * 4) / 4);
+}
+
 function inventory_items(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
         'SELECT id, sku, name, category, unit, package_name AS packageName,
-                units_per_package AS unitsPerPackage, current_stock AS currentStock,
+                units_per_package AS unitsPerPackage, lead_time_days AS leadTimeDays,
+                safety_stock_days AS safetyStockDays, target_stock_days AS targetStockDays,
+                current_stock AS currentStock,
                 minimum_stock AS minimumStock, average_cost AS averageCost,
                 current_stock / NULLIF(units_per_package, 0) AS packageStock,
                 average_cost * units_per_package AS packageCost,
@@ -21,8 +32,9 @@ function inventory_products(array $params = [])
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
         'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.sale_price AS salePrice,
-                p.tax_rate AS taxRate, p.active, r.inventory_item_id AS itemId,
-                r.quantity, i.sku AS itemSku, i.name AS itemName, i.unit
+                p.tax_rate AS taxRate, p.target_margin AS targetMargin, p.active,
+                r.inventory_item_id AS itemId, r.quantity, i.sku AS itemSku,
+                i.name AS itemName, i.unit, i.average_cost AS averageCost
          FROM products p
          LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
@@ -41,20 +53,38 @@ function inventory_products(array $params = [])
                 'category' => $row['category'],
                 'salePrice' => $row['salePrice'],
                 'taxRate' => $row['taxRate'],
+                'targetMargin' => $row['targetMargin'],
                 'active' => $row['active'],
                 'recipe' => [],
+                'recipeCost' => 0.0,
             ];
         }
         if ($row['itemId'] !== null) {
+            $componentCost = (float) $row['quantity'] * (float) $row['averageCost'];
+            $products[$id]['recipeCost'] += $componentCost;
             $products[$id]['recipe'][] = [
                 'itemId' => (int) $row['itemId'],
                 'sku' => $row['itemSku'],
                 'name' => $row['itemName'],
                 'quantity' => $row['quantity'],
                 'unit' => $row['unit'],
+                'averageCost' => $row['averageCost'],
+                'componentCost' => money_round($componentCost),
             ];
         }
     }
+    foreach ($products as &$product) {
+        $product['recipeCost'] = money_round((float) $product['recipeCost']);
+        $product['suggestedPrice'] = suggested_product_price(
+            (float) $product['recipeCost'],
+            (float) $product['targetMargin']
+        );
+        $product['unitGrossProfit'] = money_round((float) $product['salePrice'] - (float) $product['recipeCost']);
+        $product['grossMargin'] = (float) $product['salePrice'] > 0
+            ? round($product['unitGrossProfit'] / (float) $product['salePrice'], 4)
+            : 0.0;
+    }
+    unset($product);
     json_response(['products' => array_values($products)]);
 }
 
@@ -66,7 +96,11 @@ function inventory_item_create(array $params = [])
     $sku = value_string($body, 'sku', 1, 80) ?? '';
     $name = value_string($body, 'name', 2, 180) ?? '';
     $category = value_string($body, 'category', 2, 100) ?? '';
-    $unit = require_choice($body['unit'] ?? '', ['unit', 'bottle', 'ml', 'liter', 'gram', 'kg', 'portion'], 'unit');
+    $unit = require_choice(
+        $body['unit'] ?? '',
+        ['unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg'],
+        'unit'
+    );
     $packageName = value_string($body, 'packageName', 2, 80) ?? '';
     $unitsPerPackage = value_number($body, 'unitsPerPackage', 0.0001);
     $initialPackages = isset($body['initialPackages'])
@@ -78,15 +112,27 @@ function inventory_item_create(array $params = [])
     $stock = $initialPackages * $unitsPerPackage;
     $minimum = value_number($body, 'minimumStock', 0);
     $cost = $packageCost / $unitsPerPackage;
+    $leadTimeDays = (int) round(isset($body['leadTimeDays']) ? value_number($body, 'leadTimeDays', 0, 365) : 3);
+    $safetyStockDays = (int) round(isset($body['safetyStockDays']) ? value_number($body, 'safetyStockDays', 0, 365) : 2);
+    $targetStockDays = (int) round(isset($body['targetStockDays']) ? value_number($body, 'targetStockDays', 1, 730) : 14);
+    if ($targetStockDays <= $leadTimeDays + $safetyStockDays) {
+        throw new ApiError('La cobertura objetivo debe superar el tiempo de entrega más los días de seguridad.');
+    }
 
     try {
-        $id = transaction(function (PDO $pdo) use ($user, $sku, $name, $category, $unit, $packageName, $unitsPerPackage, $initialPackages, $packageCost, $stock, $minimum, $cost): int {
+        $id = transaction(function (PDO $pdo) use ($user, $sku, $name, $category, $unit, $packageName, $unitsPerPackage, $initialPackages, $packageCost, $stock, $minimum, $cost, $leadTimeDays, $safetyStockDays, $targetStockDays): int {
             $statement = $pdo->prepare(
                 'INSERT INTO inventory_items
-                   (sku, name, category, unit, package_name, units_per_package, current_stock, minimum_stock, average_cost)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                   (sku, name, category, unit, package_name, units_per_package,
+                    lead_time_days, safety_stock_days, target_stock_days,
+                    current_stock, minimum_stock, average_cost)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $statement->execute([$sku, $name, $category, $unit, $packageName, $unitsPerPackage, $stock, $minimum, $cost]);
+            $statement->execute([
+                $sku, $name, $category, $unit, $packageName, $unitsPerPackage,
+                $leadTimeDays, $safetyStockDays, $targetStockDays,
+                $stock, $minimum, $cost,
+            ]);
             $id = (int) $pdo->lastInsertId();
             if ($stock > 0) {
                 $movement = $pdo->prepare(
@@ -98,7 +144,8 @@ function inventory_item_create(array $params = [])
             }
             audit_log($pdo, $user, 'create', 'inventory_item', $id, null, compact(
                 'sku', 'name', 'category', 'unit', 'packageName', 'unitsPerPackage',
-                'initialPackages', 'packageCost', 'stock', 'minimum', 'cost'
+                'initialPackages', 'packageCost', 'stock', 'minimum', 'cost',
+                'leadTimeDays', 'safetyStockDays', 'targetStockDays'
             ));
             return $id;
         });
@@ -121,6 +168,9 @@ function inventory_product_create(array $params = [])
     $category = value_string($body, 'category', 2, 100) ?? '';
     $price = value_number($body, 'salePrice', 0);
     $taxRate = value_number($body, 'taxRate', 0, 1);
+    $targetMargin = isset($body['targetMargin'])
+        ? value_number($body, 'targetMargin', 0.10, 0.95)
+        : 0.70;
     $barcode = value_string($body, 'barcode', 0, 120, false);
     $recipe = $body['recipe'] ?? null;
     if (!is_array($recipe) || count($recipe) < 1 || count($recipe) > 100) {
@@ -138,22 +188,46 @@ function inventory_product_create(array $params = [])
     }
 
     try {
-        $id = transaction(function (PDO $pdo) use ($user, $sku, $barcode, $name, $category, $price, $taxRate, $normalizedRecipe): int {
+        $result = transaction(function (PDO $pdo) use ($user, $sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $normalizedRecipe): array {
             $ids = array_keys($normalizedRecipe);
-            $statement = $pdo->prepare('SELECT id FROM inventory_items WHERE active = TRUE AND id IN (' . placeholders(count($ids)) . ')');
+            $statement = $pdo->prepare('SELECT id, average_cost FROM inventory_items WHERE active = TRUE AND id IN (' . placeholders(count($ids)) . ')');
             $statement->execute($ids);
-            if (count($statement->fetchAll()) !== count($ids)) {
+            $itemRows = $statement->fetchAll();
+            if (count($itemRows) !== count($ids)) {
                 throw new ApiError('La receta contiene artículos inválidos.');
             }
-            $product = $pdo->prepare('INSERT INTO products (sku, barcode, name, category, sale_price, tax_rate) VALUES (?, ?, ?, ?, ?, ?)');
-            $product->execute([$sku, $barcode, $name, $category, $price, $taxRate]);
+            $costs = [];
+            foreach ($itemRows as $itemRow) {
+                $costs[(int) $itemRow['id']] = (float) $itemRow['average_cost'];
+            }
+            $recipeCost = 0.0;
+            foreach ($normalizedRecipe as $itemId => $quantity) {
+                $recipeCost += $quantity * $costs[$itemId];
+            }
+            $recipeCost = money_round($recipeCost);
+            $suggestedPrice = suggested_product_price($recipeCost, $targetMargin);
+            $product = $pdo->prepare(
+                'INSERT INTO products (sku, barcode, name, category, sale_price, tax_rate, target_margin)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+            );
+            $product->execute([$sku, $barcode, $name, $category, $price, $taxRate, $targetMargin]);
             $id = (int) $pdo->lastInsertId();
             $recipeInsert = $pdo->prepare('INSERT INTO product_recipes (product_id, inventory_item_id, quantity) VALUES (?, ?, ?)');
             foreach ($normalizedRecipe as $itemId => $quantity) {
                 $recipeInsert->execute([$id, $itemId, $quantity]);
             }
-            audit_log($pdo, $user, 'create', 'product', $id, null, ['sku' => $sku, 'name' => $name, 'salePrice' => $price, 'recipe' => $normalizedRecipe]);
-            return $id;
+            audit_log($pdo, $user, 'create', 'product', $id, null, [
+                'sku' => $sku, 'name' => $name, 'salePrice' => $price,
+                'targetMargin' => $targetMargin, 'recipeCost' => $recipeCost,
+                'suggestedPrice' => $suggestedPrice, 'recipe' => $normalizedRecipe,
+            ]);
+            return [
+                'id' => $id,
+                'recipeCost' => $recipeCost,
+                'suggestedPrice' => $suggestedPrice,
+                'unitGrossProfit' => money_round($price - $recipeCost),
+                'grossMargin' => $price > 0 ? round(($price - $recipeCost) / $price, 4) : 0.0,
+            ];
         });
     } catch (PDOException $error) {
         if ((string) $error->getCode() === '23000') {
@@ -161,7 +235,7 @@ function inventory_product_create(array $params = [])
         }
         throw $error;
     }
-    json_response(['id' => $id], 201);
+    json_response($result, 201);
 }
 
 function inventory_movement_create(array $params = [])
@@ -178,7 +252,7 @@ function inventory_movement_create(array $params = [])
     $notes = value_string($body, 'notes', 0, 500, false);
 
     $result = transaction(function (PDO $pdo) use ($user, $itemId, $type, $quantity, $notes): array {
-        $select = $pdo->prepare('SELECT id, current_stock FROM inventory_items WHERE id = ? AND active = TRUE FOR UPDATE');
+        $select = $pdo->prepare('SELECT id, current_stock, average_cost FROM inventory_items WHERE id = ? AND active = TRUE FOR UPDATE');
         $select->execute([$itemId]);
         $item = $select->fetch();
         if (!$item) {
@@ -197,9 +271,11 @@ function inventory_movement_create(array $params = [])
         }
         $pdo->prepare('UPDATE inventory_items SET current_stock = ? WHERE id = ?')->execute([$newStock, $itemId]);
         $movement = $pdo->prepare(
-            'INSERT INTO inventory_movements (inventory_item_id, movement_type, quantity, notes, created_by) VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO inventory_movements
+               (inventory_item_id, movement_type, quantity, unit_cost, notes, created_by)
+             VALUES (?, ?, ?, ?, ?, ?)'
         );
-        $movement->execute([$itemId, $type, $delta, $notes, $user['id']]);
+        $movement->execute([$itemId, $type, $delta, $item['average_cost'], $notes, $user['id']]);
         audit_log($pdo, $user, $type, 'inventory_item', $itemId, ['stock' => $item['current_stock']], ['stock' => $newStock]);
         return ['id' => (int) $pdo->lastInsertId(), 'currentStock' => $newStock];
     });

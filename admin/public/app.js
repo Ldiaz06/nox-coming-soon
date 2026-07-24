@@ -8,6 +8,7 @@ const state = {
   users: [],
   cashSessions: [],
   terminals: [],
+  insights: null,
   cart: new Map(),
   clockTimer: null
 };
@@ -18,8 +19,8 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const dateTime = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Panama" });
 const dateOnly = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeZone: "America/Panama" });
 const roleNames = { admin: "Administrador", supervisor: "Supervisor", cashier: "Cajero" };
-const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", inventory: "Inventario", cash: "Cajas", reports: "Reportes", workforce: "Personal", payroll: "Planilla", users: "Usuarios" };
-const unitNames = { unit: "unidad", bottle: "botella", ml: "ml", liter: "litro", gram: "g", kg: "kg", portion: "porción" };
+const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", inventory: "Inventario", articles: "Artículos", products: "Productos", insights: "Costos y reposición", cash: "Cajas", reports: "Reportes", workforce: "Personal", payroll: "Planilla", users: "Usuarios" };
+const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", liter: "litro", fluid_ounce: "oz líquida", gram: "g", kg: "kg", portion: "porción", pack: "paquete", case: "caja", keg: "barril" };
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -110,7 +111,7 @@ async function navigate(section) {
   $(".sidebar").classList.remove("is-open");
   $("#menu-button").setAttribute("aria-expanded", "false");
   try {
-    const loaders = { dashboard: loadDashboard, pos: loadPos, inventory: loadInventory, cash: loadCash, reports: loadReports, workforce: loadWorkforce, payroll: loadPayroll, users: loadUsers };
+    const loaders = { dashboard: loadDashboard, pos: loadPos, inventory: loadInventory, articles: loadInventory, products: loadInventory, insights: loadInsights, cash: loadCash, reports: loadReports, workforce: loadWorkforce, payroll: loadPayroll, users: loadUsers };
     await loaders[section]?.();
   } catch (error) {
     toast(error.message, true);
@@ -134,14 +135,20 @@ async function loadDashboard() {
   state.cashSessions = cashData.sessions;
   const openSession = ownOpenSession();
   let lowStock = [];
+  let reorderAlerts = [];
   if (state.user.role !== "cashier") {
-    const [reportData, lowData] = await Promise.all([api(`/api/reports/summary?period=daily&anchor=${panamaDate()}`), api("/api/reports/low-stock")]);
+    const [reportData, lowData, intelligence] = await Promise.all([
+      api(`/api/reports/summary?period=daily&anchor=${panamaDate()}`),
+      api("/api/reports/low-stock"),
+      api("/api/reports/inventory-intelligence?days=30")
+    ]);
     lowStock = lowData.items;
+    reorderAlerts = intelligence.reorder.filter((item) => ["critical", "soon"].includes(item.status));
     $("#dashboard-kpis").innerHTML = [
       kpi("Venta de hoy", money.format(reportData.summary.grossSales || 0), `${reportData.summary.transactions || 0} transacciones`),
       kpi("Ganancia estimada", money.format(reportData.summary.profit || 0), "Venta menos costo"),
       kpi("Caja", openSession ? "Abierta" : "Cerrada", openSession ? openSession.terminalName : "Sin sesión activa"),
-      kpi("Stock bajo", String(lowStock.length), lowStock.length ? "Requiere atención" : "Inventario estable")
+      kpi("Por reponer", String(reorderAlerts.length), reorderAlerts.length ? `${intelligence.summary.criticalCount} críticos` : "Compras al día")
     ].join("");
   } else {
     const total = salesData.sales.filter((sale) => sale.status === "completed").reduce((sum, sale) => sum + Number(sale.total), 0);
@@ -158,6 +165,7 @@ async function loadDashboard() {
     { label: "Jornada", value: clockData.openEntry ? "Marcación activa" : "Sin marcación activa", ok: Boolean(clockData.openEntry) }
   ];
   if (state.user.role !== "cashier") statusRows.push({ label: "Inventario", value: lowStock.length ? `${lowStock.length} artículos en mínimo` : "Niveles estables", ok: !lowStock.length });
+  if (state.user.role !== "cashier") statusRows.push({ label: "Reposición", value: reorderAlerts.length ? `${reorderAlerts.length} compras sugeridas` : "Sin compras urgentes", ok: !reorderAlerts.length });
   $("#operational-status").innerHTML = statusRows.map((row) => `<div class="list-row"><strong>${escapeHtml(row.label)}</strong><span class="badge ${row.ok ? "badge--success" : "badge--danger"}">${escapeHtml(row.value)}</span></div>`).join("");
 }
 
@@ -269,8 +277,10 @@ async function loadInventory() {
   state.inventory = items;
   state.inventoryProducts = products;
   renderInventory();
+  renderArticles();
   $$(".recipe-row", $("#recipe-rows")).forEach((row) => updateInventoryRow(row, "recipe"));
   $$(".recipe-row", $("#purchase-rows")).forEach((row) => updateInventoryRow(row, "purchase"));
+  updateProductPricingPreview();
 }
 
 function renderInventory() {
@@ -284,7 +294,7 @@ function renderInventory() {
       <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)}</small></td>
       <td><strong>${escapeHtml(item.packageName)}</strong><small>1 ${escapeHtml(item.packageName)} = ${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
       <td><strong>${quantityNumber.format(item.currentStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>${quantityNumber.format(item.packageStock)} presentaciones equivalentes</small></td>
-      <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</td>
+      <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
       <td><strong>${money.format(item.packageCost)} / presentación</strong><small>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
       <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
       <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button></td>
@@ -297,8 +307,24 @@ function renderInventory() {
       ? `<ul class="recipe-summary">${product.recipe.map((component) => `<li><strong>${quantityNumber.format(component.quantity)} ${escapeHtml(unitNames[component.unit] || component.unit)}</strong> de ${escapeHtml(component.name)}</li>`).join("")}</ul>`
       : '<span class="badge badge--danger">Sin composición</span>';
     const active = Number(product.active) === 1;
-    return `<tr><td>${escapeHtml(product.sku)}</td><td><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}</td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td></tr>`;
-  }).join("") || '<tr><td colspan="6" class="empty-state">No hay productos de venta registrados.</td></tr>';
+    const margin = Number(product.grossMargin || 0);
+    const target = Number(product.targetMargin || 0);
+    return `<tr><td>${escapeHtml(product.sku)}</td><td><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}</td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td></tr>`;
+  }).join("") || '<tr><td colspan="9" class="empty-state">No hay productos de venta registrados.</td></tr>';
+}
+
+function renderArticles() {
+  const query = $("#articles-search").value.trim().toLowerCase();
+  const items = state.inventory.filter((item) => `${item.sku} ${item.name} ${item.category} ${item.packageName}`.toLowerCase().includes(query));
+  $("#articles-summary").textContent = `${items.length} de ${state.inventory.length} artículos`;
+  $("#articles-table").innerHTML = items.map((item) => `<tr>
+    <td>${escapeHtml(item.sku)}</td>
+    <td><strong>${escapeHtml(item.name)}</strong></td>
+    <td>${escapeHtml(item.category)}</td>
+    <td><strong>${escapeHtml(item.packageName)}</strong><small>${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small></td>
+    <td>${escapeHtml(unitNames[item.unit] || item.unit)}</td>
+    <td><strong>${money.format(item.packageCost)} / presentación</strong><small>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
+  </tr>`).join("") || '<tr><td colspan="6" class="empty-state">No hay artículos con este filtro.</td></tr>';
 }
 
 function inventoryOptions() {
@@ -308,7 +334,7 @@ function inventoryOptions() {
 }
 
 function selectedInventoryItem(row) {
-  return state.inventory.find((item) => item.id === Number($("[name=itemId]", row)?.value));
+  return state.inventory.find((item) => Number(item.id) === Number($("[name=itemId]", row)?.value));
 }
 
 function updateInventoryRow(row, kind, resetPresentation = false) {
@@ -321,7 +347,10 @@ function updateInventoryRow(row, kind, resetPresentation = false) {
   }
   const unit = unitNames[item.unit] || item.unit;
   if (kind === "recipe") {
-    hint.textContent = `Se descontará en ${unit}. Ejemplo: 1 ${unit} o 50 ml por cada venta.`;
+    const quantity = Number($("[name=quantity]", row)?.value || 0);
+    const componentCost = quantity * Number(item.averageCost || 0);
+    hint.textContent = `Se descontará en ${unit} · costo actual ${money.format(componentCost)}.`;
+    updateProductPricingPreview();
     return;
   }
   if (resetPresentation) {
@@ -342,6 +371,7 @@ function addRecipeRow(kind) {
     : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<input name="packageName" list="purchase-package-names" maxlength="80" required></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="0.0001" step="0.001" required></label><label>Costo por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
   container.append(row);
   updateInventoryRow(row, kind, true);
+  if (kind === "recipe") updateProductPricingPreview();
 }
 
 function collectRows(containerSelector) {
@@ -355,22 +385,64 @@ function collectRows(containerSelector) {
   }));
 }
 
+function productRecipeCost() {
+  return $$(".recipe-row", $("#recipe-rows")).reduce((total, row) => {
+    const item = selectedInventoryItem(row);
+    const quantity = Number($("[name=quantity]", row)?.value || 0);
+    return total + (item ? quantity * Number(item.averageCost || 0) : 0);
+  }, 0);
+}
+
+function updateProductPricingPreview() {
+  const preview = $("#product-pricing-preview");
+  const form = $("#new-product-form");
+  if (!preview || !form) return;
+  const cost = productRecipeCost();
+  const targetMargin = Math.max(.1, Math.min(.95, Number(form.elements.targetMargin?.value || 70) / 100));
+  const salePrice = Number(form.elements.salePrice?.value || 0);
+  const suggested = cost > 0 ? Math.ceil((cost / (1 - targetMargin)) * 4) / 4 : 0;
+  const profit = salePrice - cost;
+  const actualMargin = salePrice > 0 ? profit / salePrice : 0;
+  preview.innerHTML = [
+    `<span class="pricing-metric"><small>Costo de receta</small><strong>${money.format(cost)}</strong></span>`,
+    `<span class="pricing-metric pricing-metric--featured"><small>Precio sugerido</small><strong>${money.format(suggested)}</strong></span>`,
+    `<span class="pricing-metric"><small>Ganancia al precio ingresado</small><strong>${money.format(profit)}</strong></span>`,
+    `<span class="pricing-metric"><small>Margen actual</small><strong class="${actualMargin >= targetMargin ? "is-positive" : "is-warning"}">${(actualMargin * 100).toFixed(1)}%</strong></span>`
+  ].join("");
+}
+
 const itemPackagePresets = {
   unit: { packageName: "Unidad", unit: "unit", unitsPerPackage: 1 },
+  "pack-4": { packageName: "Paquete de 4", unit: "unit", unitsPerPackage: 4 },
   six: { packageName: "Six-pack de 6", unit: "unit", unitsPerPackage: 6 },
+  "pack-8": { packageName: "Paquete de 8", unit: "unit", unitsPerPackage: 8 },
   "half-case": { packageName: "Media caja de 12", unit: "unit", unitsPerPackage: 12 },
+  "case-15": { packageName: "Caja de 15", unit: "unit", unitsPerPackage: 15 },
+  "case-18": { packageName: "Caja de 18", unit: "unit", unitsPerPackage: 18 },
   "case-24": { packageName: "Caja de 24", unit: "unit", unitsPerPackage: 24 },
+  "case-30": { packageName: "Caja de 30", unit: "unit", unitsPerPackage: 30 },
+  "case-36": { packageName: "Caja de 36", unit: "unit", unitsPerPackage: 36 },
+  "bottle-187": { packageName: "Botella de 187 ml", unit: "ml", unitsPerPackage: 187 },
+  "bottle-200": { packageName: "Botella de 200 ml", unit: "ml", unitsPerPackage: 200 },
+  "bottle-250": { packageName: "Botella de 250 ml", unit: "ml", unitsPerPackage: 250 },
+  "bottle-330": { packageName: "Botella de 330 ml", unit: "ml", unitsPerPackage: 330 },
+  "bottle-355": { packageName: "Botella de 355 ml", unit: "ml", unitsPerPackage: 355 },
+  "bottle-375": { packageName: "Botella de 375 ml", unit: "ml", unitsPerPackage: 375 },
+  "bottle-500": { packageName: "Botella de 500 ml", unit: "ml", unitsPerPackage: 500 },
+  "bottle-700": { packageName: "Botella de 700 ml", unit: "ml", unitsPerPackage: 700 },
   "bottle-750": { packageName: "Botella de 750 ml", unit: "ml", unitsPerPackage: 750 },
-  "bottle-1000": { packageName: "Botella de 1 L", unit: "ml", unitsPerPackage: 1000 }
+  "bottle-1000": { packageName: "Botella de 1 L", unit: "ml", unitsPerPackage: 1000 },
+  "bottle-1750": { packageName: "Botella de 1.75 L", unit: "ml", unitsPerPackage: 1750 },
+  "bottle-3000": { packageName: "Botella de 3 L", unit: "ml", unitsPerPackage: 3000 },
+  "keg-20000": { packageName: "Barril de 20 L", unit: "ml", unitsPerPackage: 20000 },
+  "keg-30000": { packageName: "Barril de 30 L", unit: "ml", unitsPerPackage: 30000 },
+  "keg-50000": { packageName: "Barril de 50 L", unit: "ml", unitsPerPackage: 50000 },
+  "bag-250": { packageName: "Bolsa de 250 g", unit: "gram", unitsPerPackage: 250 },
+  "bag-500": { packageName: "Bolsa de 500 g", unit: "gram", unitsPerPackage: 500 },
+  "bag-1000": { packageName: "Bolsa de 1 kg", unit: "gram", unitsPerPackage: 1000 },
+  "bag-5000": { packageName: "Bolsa de 5 kg", unit: "gram", unitsPerPackage: 5000 }
 };
-const purchasePackageSizes = {
-  "Unidad": 1,
-  "Six-pack de 6": 6,
-  "Media caja de 12": 12,
-  "Caja de 24": 24,
-  "Botella de 750 ml": 750,
-  "Botella de 1 L": 1000
-};
+const purchasePackageSizes = Object.fromEntries(Object.values(itemPackagePresets).map((preset) => [preset.packageName, preset.unitsPerPackage]));
 
 function updateItemStockPreview() {
   const form = $("#new-item-form");
@@ -398,6 +470,62 @@ function openInventoryForm(id) {
   ["new-item-form", "new-product-form", "purchase-form"].forEach((formId) => {
     document.getElementById(formId).hidden = formId !== id;
   });
+}
+
+async function loadInsights(event) {
+  event?.preventDefault();
+  const days = Number(new FormData($("#insights-filter")).get("days") || 30);
+  const data = await api(`/api/reports/inventory-intelligence?days=${encodeURIComponent(days)}`);
+  state.insights = data;
+  const summary = data.summary;
+  $("#insights-kpis").innerHTML = [
+    kpi("Venta analizada", money.format(summary.revenue || 0), `${data.days} días`),
+    kpi("Ganancia bruta", money.format(summary.grossProfit || 0), summary.grossMargin == null ? "Sin ventas" : `${(Number(summary.grossMargin) * 100).toFixed(1)}% de margen`),
+    kpi("Merma", money.format(summary.wasteCost || 0), "Costo del período"),
+    kpi("Reposiciones", String(summary.reorderCount || 0), `${summary.criticalCount || 0} críticas`)
+  ].join("");
+
+  const statusLabels = { critical: "Comprar ahora", soon: "Próximo", stable: "Estable", no_movement: "Sin rotación" };
+  const statusClasses = { critical: "badge--danger", soon: "badge--warning", stable: "badge--success", no_movement: "" };
+  $("#reorder-table").innerHTML = data.reorder.map((item) => {
+    const unit = unitNames[item.unit] || item.unit;
+    const coverage = item.daysRemaining == null ? "Sin datos" : `${quantityNumber.format(item.daysRemaining)} días`;
+    const buyWhen = item.status === "critical"
+      ? "Ahora"
+      : item.buyOn
+        ? dateOnly.format(new Date(`${item.buyOn}T12:00:00`))
+        : "Al definir rotación";
+    const suggested = Number(item.recommendedPackages) > 0
+      ? `<strong>${quantityNumber.format(item.recommendedPackages)} × ${escapeHtml(item.packageName)}</strong><small>${quantityNumber.format(item.recommendedUnits)} ${escapeHtml(unit)} · ${money.format(item.estimatedPurchaseCost)} estimados</small>`
+      : "Sin compra";
+    return `<tr>
+      <td><span class="badge ${statusClasses[item.status]}">${statusLabels[item.status]}</span></td>
+      <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.sku)} · punto de pedido ${quantityNumber.format(item.reorderPoint)} ${escapeHtml(unit)}</small></td>
+      <td>${quantityNumber.format(item.averageDailyConsumption)} ${escapeHtml(unit)}<small>${quantityNumber.format(item.consumed)} consumidos en ${data.days} días</small></td>
+      <td>${quantityNumber.format(item.currentStock)} ${escapeHtml(unit)}</td>
+      <td>${coverage}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
+      <td>${suggested}</td>
+      <td><strong>${escapeHtml(buyWhen)}</strong>${item.daysUntilOrder != null ? `<small>En ${item.daysUntilOrder} día(s)</small>` : ""}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="7" class="empty-state">No hay artículos para analizar.</td></tr>';
+
+  $("#profitability-table").innerHTML = data.profitability.map((product) => {
+    const currentMargin = Number(product.currentMargin || 0);
+    const targetMargin = Number(product.targetMargin || 0);
+    const realized = product.realizedMargin == null ? "Sin ventas" : `${(Number(product.realizedMargin) * 100).toFixed(1)}%`;
+    return `<tr>
+      <td><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.sku)} · ${escapeHtml(product.category)}</small></td>
+      <td>${money.format(product.salePrice)}</td>
+      <td>${money.format(product.currentRecipeCost)}</td>
+      <td><strong>${money.format(product.suggestedPrice)}</strong><small>Meta ${(targetMargin * 100).toFixed(1)}%</small></td>
+      <td class="${Number(product.unitGrossProfit) >= 0 ? "text-positive" : "text-danger"}">${money.format(product.unitGrossProfit)}</td>
+      <td><span class="badge ${currentMargin >= targetMargin ? "badge--success" : "badge--warning"}">${(currentMargin * 100).toFixed(1)}%</span></td>
+      <td>${quantityNumber.format(product.unitsSold)}<small>${money.format(product.revenue)} vendidos</small></td>
+      <td><strong>${money.format(product.grossProfit)}</strong><small>${realized} de margen real</small></td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="8" class="empty-state">No hay productos para analizar.</td></tr>';
+
+  $("#waste-table").innerHTML = data.waste.map((item) => `<tr><td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.sku)}</small></td><td>${quantityNumber.format(item.quantity)} ${escapeHtml(unitNames[item.unit] || item.unit)}</td><td class="text-danger"><strong>${money.format(item.cost)}</strong></td></tr>`).join("") || '<tr><td colspan="3" class="empty-state">No se registraron mermas en este período.</td></tr>';
 }
 
 async function loadCash() {
@@ -534,13 +662,14 @@ $("#payment-methods").addEventListener("click", (event) => {
 });
 
 $("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); openInventoryForm("new-item-form"); applyItemPackagePreset(); });
-$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); });
+$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#new-product-form"); form.reset(); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); updateProductPricingPreview(); });
 $("#show-purchase").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#purchase-form"); openInventoryForm("purchase-form"); $("#purchase-rows").replaceChildren(); addRecipeRow("purchase"); const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); form.elements.purchasedAt.value = now; });
 $("#add-recipe-row").addEventListener("click", () => addRecipeRow("recipe"));
 $("#add-purchase-row").addEventListener("click", () => addRecipeRow("purchase"));
-$("#recipe-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#recipe-rows")).length > 1) event.target.closest(".recipe-row").remove(); });
+$("#recipe-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#recipe-rows")).length > 1) { event.target.closest(".recipe-row").remove(); updateProductPricingPreview(); } });
 $("#purchase-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#purchase-rows")).length > 1) event.target.closest(".recipe-row").remove(); });
 $("#recipe-rows").addEventListener("change", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "recipe"); });
+$("#recipe-rows").addEventListener("input", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "recipe"); });
 $("#purchase-rows").addEventListener("change", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "purchase", event.target.name === "itemId"); });
 $("#purchase-rows").addEventListener("input", (event) => {
   const row = event.target.closest(".recipe-row");
@@ -552,12 +681,15 @@ $("#purchase-rows").addEventListener("input", (event) => {
 });
 $("#item-package-preset").addEventListener("change", applyItemPackagePreset);
 $("#new-item-form").addEventListener("input", updateItemStockPreview);
+$("#new-product-form").addEventListener("input", updateProductPricingPreview);
 $$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); }));
-$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, unit: values.unit, packageName: values.packageName, unitsPerPackage: Number(values.unitsPerPackage), initialPackages: Number(values.initialPackages || 0), packageCost: Number(values.packageCost || 0), minimumStock: Number(values.minimumStock || 0) }) }); form.reset(); form.hidden = true; applyItemPackagePreset(); toast("Artículo físico creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
-$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, barcode: values.barcode || null, salePrice: Number(values.salePrice), taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); form.reset(); form.hidden = true; toast("Producto de venta agregado al POS."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, unit: values.unit, packageName: values.packageName, unitsPerPackage: Number(values.unitsPerPackage), initialPackages: Number(values.initialPackages || 0), packageCost: Number(values.packageCost || 0), minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; applyItemPackagePreset(); toast("Artículo físico creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { const result = await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, barcode: values.barcode || null, salePrice: Number(values.salePrice), targetMargin: Number(values.targetMargin || 70) / 100, taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); form.reset(); form.hidden = true; toast(`Producto creado · precio sugerido ${money.format(result.suggestedPrice)}.`); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#purchase-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/purchases", { method: "POST", body: JSON.stringify({ invoiceNumber: values.invoiceNumber || null, purchasedAt: new Date(values.purchasedAt).toISOString(), notes: values.notes, items: collectRows("#purchase-rows") }) }); form.reset(); form.hidden = true; toast("Compra recibida e inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#inventory-search").addEventListener("input", renderInventory);
-$("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventory.find((row) => row.id === Number(button.dataset.adjustId)); $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${item.unit}`; $("#adjust-dialog").showModal(); });
+$("#articles-search").addEventListener("input", renderArticles);
+$$("[data-go-inventory]").forEach((button) => button.addEventListener("click", () => navigate("inventory")));
+$("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventory.find((row) => Number(row.id) === Number(button.dataset.adjustId)); $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`; $("#adjust-dialog").showModal(); });
 $("#adjust-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#adjust-dialog").close(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/movements", { method: "POST", body: JSON.stringify({ itemId: Number(values.itemId), type: values.type, quantity: Number(values.quantity), notes: values.notes }) }); $("#adjust-dialog").close(); form.reset(); toast("Inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 
 $("#open-cash-form").addEventListener("submit", async (event) => { event.preventDefault(); const values = formValues(event.currentTarget); const message = $(".form-message", event.currentTarget); try { await api("/api/cash/sessions/open", { method: "POST", body: JSON.stringify({ terminalId: Number(values.terminalId), openingAmount: Number(values.openingAmount) }) }); message.textContent = ""; toast("Caja abierta."); await loadCash(); } catch (error) { message.textContent = error.message; } });
@@ -565,6 +697,8 @@ $("#current-cash-session").addEventListener("click", (event) => { const button =
 $("#close-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#close-dialog").close(); const form = event.currentTarget; const values = formValues(form); try { const result = await api(`/api/cash/sessions/${values.sessionId}/close`, { method: "POST", body: JSON.stringify({ countedCash: Number(values.countedCash), notes: values.notes }) }); $("#close-dialog").close(); form.reset(); toast(`Caja cerrada. Diferencia: ${money.format(result.difference)}`, Math.abs(result.difference) > .01); await loadCash(); } catch (error) { toast(error.message, true); } });
 
 $("#report-filter").addEventListener("submit", loadReports);
+$("#insights-filter").addEventListener("submit", loadInsights);
+$("#insights-days").addEventListener("change", () => loadInsights().catch((error) => toast(error.message, true)));
 $("#hours-filter").addEventListener("submit", async (event) => { event.preventDefault(); await loadHours().catch((error) => toast(error.message, true)); });
 $("#clock-status").addEventListener("click", async (event) => { const button = event.target.closest("[data-clock]"); if (!button) return; try { if (button.dataset.clock === "in") await api("/api/workforce/clock/in", { method: "POST" }); else await api("/api/workforce/clock/out", { method: "POST", body: JSON.stringify({ breakMinutes: 0 }) }); toast(button.dataset.clock === "in" ? "Entrada registrada." : "Salida registrada."); await loadWorkforce(); } catch (error) { toast(error.message, true); } });
 $("#hours-table").addEventListener("click", async (event) => { const button = event.target.closest("[data-approve-hours]"); if (!button) return; try { await api(`/api/workforce/hours/${button.dataset.approveHours}/approve`, { method: "POST" }); toast("Marcación aprobada."); await loadHours(); } catch (error) { toast(error.message, true); } });

@@ -29,6 +29,7 @@ add_route('POST', 'cash/sessions/{id}/close', 'cash_close');
 
 add_route('GET', 'reports/summary', 'reports_summary');
 add_route('GET', 'reports/low-stock', 'reports_low_stock');
+add_route('GET', 'reports/inventory-intelligence', 'reports_inventory_intelligence');
 
 add_route('GET', 'workforce/employees', 'workforce_employees');
 add_route('POST', 'workforce/employees', 'workforce_employee_create');

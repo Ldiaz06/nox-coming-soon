@@ -89,9 +89,12 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   sku VARCHAR(80) NOT NULL,
   name VARCHAR(180) NOT NULL,
   category VARCHAR(100) NOT NULL,
-  unit ENUM('unit', 'bottle', 'ml', 'liter', 'gram', 'kg', 'portion') NOT NULL DEFAULT 'unit',
+  unit ENUM('unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg') NOT NULL DEFAULT 'unit',
   package_name VARCHAR(80) NOT NULL DEFAULT 'Unidad',
   units_per_package DECIMAL(14,4) NOT NULL DEFAULT 1,
+  lead_time_days SMALLINT UNSIGNED NOT NULL DEFAULT 3,
+  safety_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 2,
+  target_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 14,
   current_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   minimum_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   average_cost DECIMAL(14,4) NOT NULL DEFAULT 0,
@@ -112,6 +115,7 @@ CREATE TABLE IF NOT EXISTS products (
   category VARCHAR(100) NOT NULL,
   sale_price DECIMAL(12,2) NOT NULL,
   tax_rate DECIMAL(7,4) NOT NULL DEFAULT 0,
+  target_margin DECIMAL(5,4) NOT NULL DEFAULT 0.7000,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -262,6 +266,7 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY movements_item_date_idx (inventory_item_id, created_at),
+  KEY movements_type_date_idx (movement_type, created_at),
   KEY movements_reference_idx (reference_type, reference_id),
   CONSTRAINT movements_inventory_fk FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id) ON DELETE RESTRICT,
   CONSTRAINT movements_user_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
@@ -504,6 +509,73 @@ BEGIN
   UPDATE inventory_items
   SET units_per_package = 1
   WHERE units_per_package IS NULL OR units_per_package <= 0;
+
+  ALTER TABLE inventory_items
+    MODIFY COLUMN unit
+      ENUM('unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg')
+      NOT NULL DEFAULT 'unit';
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'lead_time_days';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN lead_time_days SMALLINT UNSIGNED NOT NULL DEFAULT 3 AFTER units_per_package;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'safety_stock_days';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN safety_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 2 AFTER lead_time_days;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'target_stock_days';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN target_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 14 AFTER safety_stock_days;
+  END IF;
+
+  UPDATE inventory_items
+  SET target_stock_days = GREATEST(target_stock_days, lead_time_days + safety_stock_days + 1);
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'products'
+    AND column_name = 'target_margin';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE products
+      ADD COLUMN target_margin DECIMAL(5,4) NOT NULL DEFAULT 0.7000 AFTER tax_rate;
+  END IF;
+
+  UPDATE products
+  SET target_margin = 0.7000
+  WHERE target_margin IS NULL OR target_margin < 0.1000 OR target_margin > 0.9500;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_movements'
+    AND index_name = 'movements_type_date_idx';
+
+  IF index_exists = 0 THEN
+    ALTER TABLE inventory_movements
+      ADD KEY movements_type_date_idx (movement_type, created_at);
+  END IF;
 
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns

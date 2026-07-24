@@ -30,6 +30,8 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 - Acceso mediante nombre de usuario, sin correo obligatorio.
 - Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
 - Inventario conectado a recetas y ventas.
+- Precio de venta sugerido según el costo actual de la receta y el margen bruto objetivo.
+- Análisis de rentabilidad por producto, merma valorada y planificación de reposición.
 - Cierres diarios, reportes quincenales y mensuales.
 - Compras, ajustes, mermas, conteos, horas y planilla.
 
@@ -39,6 +41,12 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
   presentación de compra y una unidad base de inventario.
 - **Producto de venta:** lo que aparece en el POS. Su composición indica qué
   artículos y cantidades se descuentan por cada unidad vendida.
+
+La administración mantiene estos flujos en menús independientes:
+
+- **Artículos:** creación del catálogo físico, presentaciones y unidades base;
+- **Productos:** creación del catálogo del POS, recetas, costos y márgenes;
+- **Inventario:** compras, existencias, conteos, ajustes y mermas.
 
 Ejemplos:
 
@@ -51,6 +59,41 @@ Ejemplos:
 Los costos de compra se introducen por caja, paquete o botella. El sistema los
 convierte automáticamente a costo por unidad base para valorar existencias y
 calcular el costo de las recetas.
+
+El formulario de artículos incluye paquetes y cajas de distintos tamaños,
+botellas entre 187 ml y 3 L, barriles de 20 a 50 L, y presentaciones por peso.
+También permite una presentación personalizada. Las unidades de control
+incluyen piezas, botellas, latas, mililitros, litros, onzas líquidas, gramos,
+kilogramos, porciones, paquetes, cajas y barriles.
+
+## Costos, rentabilidad y reposición
+
+Al crear un producto de venta, el sistema suma el costo promedio vigente de
+todos sus ingredientes. El precio sugerido se calcula como:
+
+```text
+precio sugerido = costo de la receta / (1 - margen bruto objetivo)
+```
+
+El resultado se redondea hacia arriba al siguiente múltiplo de 0.25. El margen
+predeterminado es 70 % y puede modificarse por producto. Es un margen **bruto**:
+no descuenta salarios, alquiler, comisiones, impuestos ni otros gastos
+operativos.
+
+La sección **Costos y reposición** muestra:
+
+- costo actual, precio sugerido, ganancia unitaria y margen de cada producto;
+- venta, costo y ganancia realmente registrados durante el período elegido;
+- cantidad y costo de las mermas registradas;
+- consumo diario promedio de cada artículo;
+- fecha y cantidad sugerida para la próxima compra.
+
+La compra sugerida considera el consumo proveniente de ventas, las anulaciones,
+el stock actual, el stock mínimo, el tiempo de entrega, los días de seguridad y
+la cobertura objetivo. La cantidad se redondea a presentaciones completas
+(cajas, six-packs o botellas). Los artículos sin historial de consumo se
+identifican como `Sin rotación`; requieren criterio operativo hasta acumular
+suficientes movimientos.
 
 ## 1. Comprobar PHP
 
@@ -110,7 +153,8 @@ En **phpMyAdmin**, importe el único instalador:
 ```
 
 `schema.sql` crea `noxpana_noxpa` si no existe, la selecciona y prepara el
-sistema completo. También sirve para actualizar una instalación existente.
+sistema completo. También sirve para actualizar una instalación existente,
+incluidos los campos de margen, tiempo de entrega y cobertura de inventario.
 Puede ejecutarlo más de una vez: conserva los registros, crea las tablas e
 índices que falten y aplica solamente las adaptaciones pendientes de usuarios,
 planilla y cajas.
