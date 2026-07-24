@@ -11,6 +11,8 @@ add_route('PATCH', 'users/{id}', 'users_update');
 
 add_route('GET', 'inventory/items', 'inventory_items');
 add_route('POST', 'inventory/items', 'inventory_item_create');
+add_route('GET', 'inventory/suppliers', 'inventory_suppliers');
+add_route('POST', 'inventory/suppliers', 'inventory_supplier_create');
 add_route('GET', 'inventory/products', 'inventory_products');
 add_route('POST', 'inventory/products', 'inventory_product_create');
 add_route('POST', 'inventory/products/{id}/image', 'inventory_product_image_upload');

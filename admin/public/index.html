@@ -106,46 +106,38 @@
           <article class="concept-card"><span class="concept-number">02</span><div><h3>Entradas y ajustes</h3><p>Registre compras por presentación y use Ajustar para conteos físicos, mermas o correcciones.</p></div></article>
         </div>
         <form id="purchase-form" class="panel inline-form" hidden>
-          <div class="form-intro wide-field"><p class="eyebrow">RECEPCIÓN</p><h3>Registrar compra por presentación</h3><p>Introduzca cuántas cajas, paquetes o botellas recibió y el costo de cada presentación. La conversión a unidades de inventario es automática.</p></div>
+          <div class="form-intro wide-field"><p class="eyebrow">RECEPCIÓN</p><h3>Registrar compra por proveedor y presentación</h3><p>Seleccione el proveedor e introduzca la presentación y el precio de esta factura. La referencia de la compra anterior es solo una ayuda y siempre puede modificarse.</p></div>
           <datalist id="purchase-package-names"><option value="Unidad"></option><option value="Paquete de 4"></option><option value="Six-pack de 6"></option><option value="Paquete de 8"></option><option value="Media caja de 12"></option><option value="Caja de 15"></option><option value="Caja de 18"></option><option value="Caja de 24"></option><option value="Caja de 30"></option><option value="Caja de 36"></option><option value="Botella de 187 ml"></option><option value="Botella de 200 ml"></option><option value="Botella de 250 ml"></option><option value="Botella de 330 ml"></option><option value="Botella de 355 ml"></option><option value="Botella de 375 ml"></option><option value="Botella de 500 ml"></option><option value="Botella de 700 ml"></option><option value="Botella de 750 ml"></option><option value="Botella de 1 L"></option><option value="Botella de 1.75 L"></option><option value="Botella de 3 L"></option><option value="Barril de 20 L"></option><option value="Barril de 30 L"></option><option value="Barril de 50 L"></option><option value="Bolsa de 250 g"></option><option value="Bolsa de 500 g"></option><option value="Bolsa de 1 kg"></option><option value="Bolsa de 5 kg"></option></datalist>
+          <label>Proveedor<select id="purchase-supplier" name="supplierId" required><option value="">Seleccione un proveedor</option></select></label>
+          <label id="purchase-new-supplier-field" hidden>Nuevo proveedor<input name="supplierName" maxlength="180" placeholder="Nombre comercial"></label>
+          <label id="purchase-new-contact-field" hidden>Contacto<input name="supplierContact" maxlength="160"></label>
+          <label id="purchase-new-phone-field" hidden>Teléfono<input name="supplierPhone" maxlength="60"></label>
           <label>Factura<input name="invoiceNumber" maxlength="100"></label><label>Fecha y hora<input name="purchasedAt" type="datetime-local" required></label><label class="wide-field">Notas<input name="notes" maxlength="500"></label>
-          <div class="wide-field"><div class="recipe-heading"><div><span>Artículos recibidos</span><small>La presentación configurada se aplica automáticamente.</small></div><button id="add-purchase-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="purchase-rows" class="recipe-rows"></div></div>
+          <div class="wide-field"><div class="recipe-heading"><div><span>Artículos recibidos</span><small>Defina la presentación y el precio real de esta compra. La última compra se muestra únicamente como referencia.</small></div><button id="add-purchase-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="purchase-rows" class="recipe-rows"></div></div>
           <div class="form-actions wide-field"><button class="button button--primary" type="submit">Recibir compra</button><button class="button button--ghost" type="button" data-cancel-form="purchase-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">ARTÍCULOS FÍSICOS</p><h3>Existencias almacenadas</h3></div></div><div class="table-tools"><input id="inventory-search" type="search" placeholder="Buscar artículo físico"><span id="inventory-summary"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Presentación de compra</th><th>Existencia base</th><th>Mínimo</th><th>Costos</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-table"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">ARTÍCULOS FÍSICOS</p><h3>Existencias almacenadas</h3></div></div><div class="table-tools"><input id="inventory-search" type="search" placeholder="Buscar artículo físico"><span id="inventory-summary"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Última compra / referencia</th><th>Existencia base</th><th>Mínimo</th><th>Costo promedio</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-table"></tbody></table></div></article>
       </section>
 
       <section id="section-articles" class="page-section" hidden>
         <div class="section-heading"><div><p class="eyebrow">CATÁLOGO FÍSICO</p><h2>Artículos</h2></div><button id="show-new-item" class="button button--primary">Agregar artículo</button></div>
         <div class="inventory-concepts">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Qué se almacena</h3><p>Cervezas, botellas, latas, mezcladores, alimentos e ingredientes que se compran y se cuentan físicamente.</p></div></article>
-          <article class="concept-card"><span class="concept-number">02</span><div><h3>Cómo se controla</h3><p>La presentación define cómo se compra; la unidad base define cómo se descuenta y se mide en inventario.</p></div></article>
+          <article class="concept-card"><span class="concept-number">02</span><div><h3>Cómo se controla</h3><p>El artículo conserva una unidad base. Cada compra registra por separado proveedor, presentación, contenido y precio realmente pagado.</p></div></article>
         </div>
         <form id="new-item-form" class="panel inline-form" hidden>
-          <div class="form-intro wide-field"><p class="eyebrow">NUEVO ARTÍCULO</p><h3>Definir presentación y unidad de inventario</h3><p>Ejemplo: una caja contiene 24 cervezas; una botella contiene 750 ml. El inventario siempre se controla en la unidad base.</p></div>
+          <div class="form-intro wide-field"><p class="eyebrow">NUEVO ARTÍCULO</p><h3>Definir el artículo y su unidad de control</h3><p>Aquí no se fija una presentación ni un precio de compra. Esos datos se registran con cada factura porque pueden cambiar según el proveedor.</p></div>
           <label>SKU del artículo<input name="sku" required></label><label>Nombre del artículo<input name="name" required placeholder="Balboa 355 ml"></label>
           <label>Categoría<select id="item-category-input" name="category" required><option value="">Seleccione una categoría</option></select></label>
           <label id="item-new-category-field" hidden>Nueva categoría<input name="categoryNew" maxlength="100" placeholder="Escriba la nueva categoría"></label>
-          <label>Presentación habitual<select id="item-package-preset" name="packagePreset">
-            <optgroup label="Unidades y paquetes"><option value="unit">Unidad individual</option><option value="pack-4">Paquete de 4</option><option value="six">Six-pack de 6</option><option value="pack-8">Paquete de 8</option><option value="half-case">Media caja de 12</option><option value="case-15">Caja de 15</option><option value="case-18">Caja de 18</option><option value="case-24">Caja de 24</option><option value="case-30">Caja de 30</option><option value="case-36">Caja de 36</option></optgroup>
-            <optgroup label="Botellas y líquidos"><option value="bottle-187">Botella de 187 ml</option><option value="bottle-200">Botella de 200 ml</option><option value="bottle-250">Botella de 250 ml</option><option value="bottle-330">Botella de 330 ml</option><option value="bottle-355">Botella de 355 ml</option><option value="bottle-375">Botella de 375 ml</option><option value="bottle-500">Botella de 500 ml</option><option value="bottle-700">Botella de 700 ml</option><option value="bottle-750">Botella de 750 ml</option><option value="bottle-1000">Botella de 1 L</option><option value="bottle-1750">Botella de 1.75 L</option><option value="bottle-3000">Botella de 3 L</option></optgroup>
-            <optgroup label="Barriles"><option value="keg-20000">Barril de 20 L</option><option value="keg-30000">Barril de 30 L</option><option value="keg-50000">Barril de 50 L</option></optgroup>
-            <optgroup label="Peso"><option value="bag-250">Bolsa de 250 g</option><option value="bag-500">Bolsa de 500 g</option><option value="bag-1000">Bolsa de 1 kg</option><option value="bag-5000">Bolsa de 5 kg</option></optgroup>
-            <option value="custom">Presentación personalizada</option>
-          </select></label>
-          <label>Nombre de la presentación<input name="packageName" maxlength="80" value="Unidad" required></label>
           <label>Unidad de control<select name="unit"><option value="unit">Unidad / pieza</option><option value="bottle">Botella completa</option><option value="can">Lata</option><option value="ml">Mililitro (ml)</option><option value="liter">Litro (L)</option><option value="fluid_ounce">Onza líquida (fl oz)</option><option value="gram">Gramo (g)</option><option value="kg">Kilogramo (kg)</option><option value="portion">Porción</option><option value="pack">Paquete</option><option value="case">Caja</option><option value="keg">Barril</option></select></label>
-          <label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" value="1" required><small class="field-hint">Cantidad de unidades base que contiene la presentación.</small></label>
-          <label>Presentaciones iniciales<input name="initialPackages" type="number" min="0" step="0.001" value="0"></label>
-          <label>Costo por presentación<input name="packageCost" type="number" min="0" step="0.0001" value="0"></label>
           <label>Stock mínimo en unidad base<input name="minimumStock" type="number" min="0" step="0.001" value="0"></label>
           <label>Tiempo de entrega (días)<input name="leadTimeDays" type="number" min="0" max="365" step="1" value="3" required><small class="field-hint">Días habituales desde el pedido hasta recibirlo.</small></label>
           <label>Stock de seguridad (días)<input name="safetyStockDays" type="number" min="0" max="365" step="1" value="2" required><small class="field-hint">Cobertura adicional ante retrasos o mayor demanda.</small></label>
           <label>Cobertura objetivo (días)<input name="targetStockDays" type="number" min="1" max="730" step="1" value="14" required><small class="field-hint">Inventario deseado después de una compra.</small></label>
-          <p id="item-stock-preview" class="conversion-preview wide-field" role="status">0 unidades en inventario.</p>
           <div class="form-actions wide-field"><button class="button button--primary" type="submit">Guardar artículo físico</button><button class="button button--ghost" type="button" data-cancel-form="new-item-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Artículos configurados</h3></div><span id="articles-summary" class="panel-note"></span></div><div class="table-tools"><input id="articles-search" type="search" placeholder="Buscar artículo"><button class="text-button" type="button" data-go-inventory>Ver existencias y ajustes →</button></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Presentación</th><th>Unidad base</th><th>Costo</th></tr></thead><tbody id="articles-table"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Artículos configurados</h3></div><span id="articles-summary" class="panel-note"></span></div><div class="table-tools"><input id="articles-search" type="search" placeholder="Buscar artículo"><button class="text-button" type="button" data-go-inventory>Ver existencias y ajustes →</button></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Unidad de control</th><th>Última compra / referencia</th><th>Costo promedio</th></tr></thead><tbody id="articles-table"></tbody></table></div></article>
       </section>
 
       <section id="section-products" class="page-section" hidden>
@@ -181,7 +173,7 @@
         <div id="insights-kpis" class="kpi-grid"></div>
         <div class="insight-guide">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Precio sugerido</h3><p>Parte del costo actual de la receta y del margen bruto objetivo. Se redondea hacia arriba al siguiente 0.25.</p></div></article>
-          <article class="concept-card"><span class="concept-number">02</span><div><h3>Reposición</h3><p>Combina consumo promedio, existencias, tiempo de entrega, seguridad y presentación habitual de compra.</p></div></article>
+          <article class="concept-card"><span class="concept-number">02</span><div><h3>Reposición</h3><p>Combina consumo, existencias, tiempo de entrega y seguridad; usa la última presentación comprada solo como referencia.</p></div></article>
           <article class="concept-card"><span class="concept-number">03</span><div><h3>Merma valorada</h3><p>Usa el costo registrado al momento del movimiento para mostrar la pérdida económica del período.</p></div></article>
         </div>
         <article class="panel table-panel">
@@ -260,6 +252,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260724-8" defer></script>
+  <script src="/app.js?v=20260724-9" defer></script>
 </body>
 </html>

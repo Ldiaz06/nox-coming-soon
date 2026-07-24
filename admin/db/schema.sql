@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   unit_cost DECIMAL(14,4) NOT NULL,
   line_total DECIMAL(14,2) GENERATED ALWAYS AS (ROUND(quantity * unit_cost, 2)) STORED,
   PRIMARY KEY (id),
+  KEY purchase_items_inventory_history_idx (inventory_item_id, id),
   CONSTRAINT purchase_items_purchase_fk FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
   CONSTRAINT purchase_items_inventory_fk FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
@@ -648,6 +649,17 @@ BEGIN
     SET package_quantity = quantity,
         units_per_package = 1,
         package_cost = unit_cost;
+  END IF;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'purchase_items'
+    AND index_name = 'purchase_items_inventory_history_idx';
+
+  IF index_exists = 0 THEN
+    ALTER TABLE purchase_items
+      ADD KEY purchase_items_inventory_history_idx (inventory_item_id, id);
   END IF;
 
   -- Convertir la modalidad mensual heredada a quincenal. La tarifa siempre se

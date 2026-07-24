@@ -299,12 +299,14 @@ function reports_inventory_intelligence(array $params = [])
 
     $reorderStatement = $pdo->prepare(
         "SELECT i.id, i.sku, i.name, i.category, i.unit,
-                i.package_name AS packageName, i.units_per_package AS unitsPerPackage,
+                COALESCE(last_line.package_name, 'Unidad base') AS packageName,
+                COALESCE(last_line.units_per_package, 1) AS unitsPerPackage,
+                COALESCE(last_line.package_cost, 0) AS referencePackageCost,
                 i.current_stock AS currentStock, i.minimum_stock AS minimumStock,
                 i.average_cost AS averageCost, i.lead_time_days AS leadTimeDays,
                 i.safety_stock_days AS safetyStockDays, i.target_stock_days AS targetStockDays,
                 COALESCE(consumption.consumed, 0) AS consumed,
-                consumption.lastConsumption, purchases.lastPurchase
+                consumption.lastConsumption, purchase_activity.lastPurchase
          FROM inventory_items i
          LEFT JOIN (
            SELECT inventory_item_id,
@@ -322,7 +324,17 @@ function reports_inventory_intelligence(array $params = [])
            FROM inventory_movements
            WHERE movement_type = 'purchase'
            GROUP BY inventory_item_id
-         ) purchases ON purchases.inventory_item_id = i.id
+         ) purchase_activity ON purchase_activity.inventory_item_id = i.id
+         LEFT JOIN purchase_items last_line
+           ON last_line.id = (
+             SELECT candidate.id
+             FROM purchase_items candidate
+             JOIN purchases candidate_purchase ON candidate_purchase.id = candidate.purchase_id
+             WHERE candidate.inventory_item_id = i.id
+               AND candidate_purchase.status = 'received'
+             ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
+             LIMIT 1
+           )
          WHERE i.active = TRUE
          ORDER BY i.category, i.name"
     );
@@ -382,7 +394,11 @@ function reports_inventory_intelligence(array $params = [])
             'daysUntilOrder' => $daysUntilOrder,
             'recommendedPackages' => $recommendedPackages,
             'recommendedUnits' => round($recommendedUnits, 4),
-            'estimatedPurchaseCost' => money_round($recommendedUnits * (float) $row['averageCost']),
+            'estimatedPurchaseCost' => money_round(
+                $recommendedPackages > 0 && (float) $row['referencePackageCost'] > 0
+                    ? $recommendedPackages * (float) $row['referencePackageCost']
+                    : $recommendedUnits * (float) $row['averageCost']
+            ),
             'buyOn' => $daysUntilOrder !== null
                 ? (new DateTimeImmutable('today'))->modify("+{$daysUntilOrder} days")->format('Y-m-d')
                 : null,

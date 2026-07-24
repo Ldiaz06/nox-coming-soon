@@ -37,16 +37,21 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 
 ## Modelo de artículos y productos
 
-- **Artículo físico:** lo que se compra, almacena y cuenta. Define una
-  presentación de compra y una unidad base de inventario.
+- **Artículo físico:** lo que se almacena y cuenta. Define su identidad,
+  categoría y unidad base de inventario, pero no fija un proveedor,
+  presentación ni precio de compra.
+- **Compra:** registra el proveedor, la presentación recibida, su contenido,
+  cantidad y precio real por cada factura. Conserva el historial aunque esos
+  datos cambien entre proveedores o fechas.
 - **Producto de venta:** lo que aparece en el POS. Su composición indica qué
   artículos y cantidades se descuentan por cada unidad vendida.
 
 La administración mantiene estos flujos en menús independientes:
 
-- **Artículos:** creación del catálogo físico, presentaciones y unidades base;
+- **Artículos:** creación del catálogo físico y sus unidades de control;
 - **Productos:** creación del catálogo del POS, recetas, costos y márgenes;
-- **Inventario:** compras, existencias, conteos, ajustes y mermas.
+- **Inventario:** compras por proveedor, presentaciones, precios, existencias,
+  conteos, ajustes y mermas.
 
 Los formularios de artículos y productos incluyen catálogos amplios de
 categorías para bares y discotecas. Si una categoría no existe, seleccione
@@ -75,22 +80,24 @@ find /home/noxpana/public_html/admin/public/uploads -type d -exec chmod 755 {} \
 find /home/noxpana/public_html/admin/public/uploads -type f -exec chmod 644 {} \;
 ```
 
-Ejemplos:
+Ejemplos al registrar una compra:
 
-- una caja de 24 cervezas se registra como presentación `Caja de 24`, contenido
+- una caja de 24 cervezas se recibe como presentación `Caja de 24`, contenido
   `24` y unidad base `unidad`; recibir 2 cajas agrega 48 unidades;
-- una botella de licor de 750 ml se registra como presentación
+- una botella de licor de 750 ml se recibe como presentación
   `Botella de 750 ml`, contenido `750` y unidad base `ml`; un producto que use
   50 ml descuenta exactamente esa cantidad en cada venta.
 
-Los costos de compra se introducen por caja, paquete o botella. El sistema los
-convierte automáticamente a costo por unidad base para valorar existencias y
-calcular el costo de las recetas.
+Los costos de compra se introducen por caja, paquete o botella en cada
+recepción. El sistema los convierte automáticamente a costo por unidad base,
+recalcula el costo promedio ponderado y conserva la factura histórica. En la
+siguiente compra muestra la última presentación, proveedor y precio como una
+referencia editable; nunca impide registrar condiciones distintas.
 
-El formulario de artículos incluye paquetes y cajas de distintos tamaños,
-botellas entre 187 ml y 3 L, barriles de 20 a 50 L, y presentaciones por peso.
-También permite una presentación personalizada. Las unidades de control
-incluyen piezas, botellas, latas, mililitros, litros, onzas líquidas, gramos,
+El formulario de compra incluye paquetes y cajas de distintos tamaños,
+botellas entre 187 ml y 3 L, barriles de 20 a 50 L, presentaciones por peso y
+una opción personalizada. Las unidades de control del artículo incluyen
+piezas, botellas, latas, mililitros, litros, onzas líquidas, gramos,
 kilogramos, porciones, paquetes, cajas y barriles.
 
 ## Catálogo base para el mercado panameño
@@ -106,6 +113,10 @@ nacionales, importadas y artesanales, ron y seco panameño, whisky, vodka,
 ginebra, tequila, mezcal, vinos, champagne, mezcladores, frutas, insumos de
 barra, alimentos, limpieza y cristalería.
 
+El catálogo base no inventa presentaciones ni costos. Todos comienzan sin
+existencias y con `Unidad base` como valor técnico de compatibilidad; la
+presentación y el precio válidos nacen al registrar la primera compra.
+
 Ejecútelo solamente después de `schema.sql`, desde phpMyAdmin o Terminal:
 
 ```bash
@@ -113,11 +124,14 @@ mysql -u noxpana_nox_app -p noxpana_noxpa \
   < /home/noxpana/public_html/admin/db/seed_panama_inventory.sql
 ```
 
-El catálogo es idempotente: puede ejecutarse más de una vez y nunca reemplaza
-un SKU existente. Todos los artículos nuevos empiezan con existencia, mínimo y
-costo en cero. Esto evita registrar precios o cantidades que no correspondan a
-las facturas reales de los proveedores. Después de importarlo, registre la
-primera compra desde **Inventario > Registrar compra**.
+El catálogo es idempotente: puede ejecutarse más de una vez y no duplica ni
+reemplaza la identidad de un SKU existente. Solo normaliza a `Unidad base` los
+artículos `PA-` que continúan en cero y no tienen compras ni movimientos; nunca
+modifica registros con historial operativo. Todos los artículos nuevos
+empiezan con existencia, mínimo y costo en cero. Esto evita registrar precios o
+cantidades que no correspondan a las facturas reales de los proveedores.
+Después de importarlo, registre la primera compra desde **Inventario >
+Registrar compra**.
 
 ## Costos, rentabilidad y reposición
 
@@ -144,9 +158,10 @@ La sección **Costos y reposición** muestra:
 La compra sugerida considera el consumo proveniente de ventas, las anulaciones,
 el stock actual, el stock mínimo, el tiempo de entrega, los días de seguridad y
 la cobertura objetivo. La cantidad se redondea a presentaciones completas
-(cajas, six-packs o botellas). Los artículos sin historial de consumo se
-identifican como `Sin rotación`; requieren criterio operativo hasta acumular
-suficientes movimientos.
+usando como referencia la última compra recibida (cajas, six-packs o botellas);
+ese valor se puede cambiar en la próxima recepción. Los artículos sin historial
+de consumo se identifican como `Sin rotación`; requieren criterio operativo
+hasta acumular suficientes movimientos.
 
 ## 1. Comprobar PHP
 

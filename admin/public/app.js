@@ -5,6 +5,7 @@ const state = {
   products: [],
   inventory: [],
   inventoryProducts: [],
+  suppliers: [],
   users: [],
   cashSessions: [],
   terminals: [],
@@ -24,6 +25,7 @@ const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", li
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const NEW_CATEGORY = "__new_category__";
+const NEW_SUPPLIER = "__new_supplier__";
 const DEFAULT_PRODUCT_IMAGE = "/assets/product-default-v3.webp";
 const articleCategories = [
   "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
@@ -124,6 +126,31 @@ function categoryFromForm(form) {
     : selected;
   if (category.length < 2) throw new Error("Seleccione o escriba una categoría válida.");
   return category;
+}
+
+function refreshSupplierSelect(selected = "") {
+  const select = $("#purchase-supplier");
+  select.innerHTML = [
+    '<option value="">Seleccione un proveedor</option>',
+    ...state.suppliers.map((supplier) => `<option value="${supplier.id}">${escapeHtml(supplier.name)}</option>`),
+    `<option value="${NEW_SUPPLIER}">+ Agregar nuevo proveedor</option>`
+  ].join("");
+  if ([...select.options].some((option) => option.value === String(selected))) {
+    select.value = String(selected);
+  }
+}
+
+function toggleNewSupplier() {
+  const isNew = $("#purchase-supplier").value === NEW_SUPPLIER;
+  ["#purchase-new-supplier-field", "#purchase-new-contact-field", "#purchase-new-phone-field"]
+    .forEach((selector) => { $(selector).hidden = !isNew; });
+  const name = $("#purchase-form [name=supplierName]");
+  name.required = isNew;
+  if (!isNew) {
+    name.value = "";
+    $("#purchase-form [name=supplierContact]").value = "";
+    $("#purchase-form [name=supplierPhone]").value = "";
+  }
 }
 
 function setImagePreview(input, container) {
@@ -357,13 +384,16 @@ async function completeSale() {
 }
 
 async function loadInventory() {
-  const [{ items }, { products }] = await Promise.all([
+  const [{ items }, { products }, { suppliers }] = await Promise.all([
     api("/api/inventory/items"),
-    api("/api/inventory/products")
+    api("/api/inventory/products"),
+    api("/api/inventory/suppliers")
   ]);
   state.inventory = items;
   state.inventoryProducts = products;
+  state.suppliers = suppliers;
   refreshCategoryCatalogs();
+  refreshSupplierSelect($("#purchase-supplier").value);
   renderInventory();
   renderArticles();
   $$(".recipe-row", $("#recipe-rows")).forEach((row) => updateInventoryRow(row, "recipe"));
@@ -377,13 +407,16 @@ function renderInventory() {
   $("#inventory-summary").textContent = `${items.length} artículos · ${state.inventory.filter((item) => Number(item.lowStock) === 1).length} en mínimo`;
   $("#inventory-table").innerHTML = items.map((item) => {
     const lowStock = Number(item.lowStock) === 1;
+    const reference = item.referencePackageName
+      ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}${item.referenceSupplier ? ` · ${escapeHtml(item.referenceSupplier)}` : ""}</small>`
+      : '<span class="badge">Sin compras</span><small>La primera presentación y precio se definen al comprar.</small>';
     return `<tr>
       <td>${escapeHtml(item.sku)}</td>
       <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)}</small></td>
-      <td><strong>${escapeHtml(item.packageName)}</strong><small>1 ${escapeHtml(item.packageName)} = ${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
-      <td><strong>${quantityNumber.format(item.currentStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>${quantityNumber.format(item.packageStock)} presentaciones equivalentes</small></td>
+      <td>${reference}</td>
+      <td><strong>${quantityNumber.format(item.currentStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
       <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
-      <td><strong>${money.format(item.packageCost)} / presentación</strong><small>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
+      <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>Promedio ponderado de compras recibidas.</small></td>
       <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
       <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button></td>
     </tr>`;
@@ -404,21 +437,21 @@ function renderInventory() {
 
 function renderArticles() {
   const query = $("#articles-search").value.trim().toLowerCase();
-  const items = state.inventory.filter((item) => `${item.sku} ${item.name} ${item.category} ${item.packageName}`.toLowerCase().includes(query));
+  const items = state.inventory.filter((item) => `${item.sku} ${item.name} ${item.category} ${item.referencePackageName || ""} ${item.referenceSupplier || ""}`.toLowerCase().includes(query));
   $("#articles-summary").textContent = `${items.length} de ${state.inventory.length} artículos`;
   $("#articles-table").innerHTML = items.map((item) => `<tr>
     <td>${escapeHtml(item.sku)}</td>
     <td><strong>${escapeHtml(item.name)}</strong></td>
     <td>${escapeHtml(item.category)}</td>
-    <td><strong>${escapeHtml(item.packageName)}</strong><small>${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small></td>
     <td>${escapeHtml(unitNames[item.unit] || item.unit)}</td>
-    <td><strong>${money.format(item.packageCost)} / presentación</strong><small>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
+    <td>${item.referencePackageName ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${escapeHtml(item.referenceSupplier || "Proveedor no indicado")}</small>` : '<span class="badge">Sin compras</span>'}</td>
+    <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
   </tr>`).join("") || '<tr><td colspan="6" class="empty-state">No hay artículos con este filtro.</td></tr>';
 }
 
 function inventoryOptions() {
   return state.inventory.length
-    ? state.inventory.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${escapeHtml(item.packageName)} de ${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}</option>`).join("")
+    ? state.inventory.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · control en ${escapeHtml(unitNames[item.unit] || item.unit)}</option>`).join("")
     : '<option value="">Primero cree un artículo físico</option>';
 }
 
@@ -443,12 +476,16 @@ function updateInventoryRow(row, kind, resetPresentation = false) {
     return;
   }
   if (resetPresentation) {
-    $("[name=packageName]", row).value = item.packageName;
-    $("[name=unitsPerPackage]", row).value = item.unitsPerPackage;
+    $("[name=packageName]", row).value = item.referencePackageName || "Unidad";
+    $("[name=unitsPerPackage]", row).value = item.referenceUnitsPerPackage || 1;
+    $("[name=packageCost]", row).value = item.referencePackageCost || 0;
   }
-  const packageName = $("[name=packageName]", row).value || item.packageName;
-  const unitsPerPackage = Number($("[name=unitsPerPackage]", row).value || item.unitsPerPackage);
-  hint.textContent = `1 ${packageName} agrega ${quantityNumber.format(unitsPerPackage)} ${unit} al inventario.`;
+  const packageName = $("[name=packageName]", row).value || "presentación";
+  const unitsPerPackage = Number($("[name=unitsPerPackage]", row).value || 0);
+  const reference = item.referencePackageName
+    ? ` Última compra: ${item.referencePackageName} a ${money.format(item.referencePackageCost)}${item.referenceSupplier ? ` con ${item.referenceSupplier}` : ""}.`
+    : " No hay compras anteriores; complete los datos de esta factura.";
+  hint.textContent = `1 ${packageName} agrega ${quantityNumber.format(unitsPerPackage)} ${unit} al inventario.${reference}`;
 }
 
 function addRecipeRow(kind) {
@@ -457,7 +494,7 @@ function addRecipeRow(kind) {
   row.className = `recipe-row recipe-row--${kind}`;
   row.innerHTML = kind === "recipe"
     ? `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select></label><label>Cantidad por cada venta<input name="quantity" type="number" min="0.0001" step="0.0001" required><small class="field-hint" data-conversion-hint></small></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`
-    : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<input name="packageName" list="purchase-package-names" maxlength="80" required></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="0.0001" step="0.001" required></label><label>Costo por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
+    : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<input name="packageName" list="purchase-package-names" maxlength="80" required></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="0.0001" step="0.001" required></label><label>Precio pagado por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
   container.append(row);
   updateInventoryRow(row, kind, true);
   if (kind === "recipe") updateProductPricingPreview();
@@ -532,28 +569,6 @@ const itemPackagePresets = {
   "bag-5000": { packageName: "Bolsa de 5 kg", unit: "gram", unitsPerPackage: 5000 }
 };
 const purchasePackageSizes = Object.fromEntries(Object.values(itemPackagePresets).map((preset) => [preset.packageName, preset.unitsPerPackage]));
-
-function updateItemStockPreview() {
-  const form = $("#new-item-form");
-  const packages = Number(form.elements.initialPackages.value || 0);
-  const unitsPerPackage = Number(form.elements.unitsPerPackage.value || 0);
-  const packageCost = Number(form.elements.packageCost.value || 0);
-  const unit = unitNames[form.elements.unit.value] || form.elements.unit.value;
-  const stock = packages * unitsPerPackage;
-  const unitCost = unitsPerPackage > 0 ? packageCost / unitsPerPackage : 0;
-  $("#item-stock-preview").textContent = `${quantityNumber.format(packages)} presentaciones × ${quantityNumber.format(unitsPerPackage)} ${unit} = ${quantityNumber.format(stock)} ${unit} en inventario · costo ${money.format(unitCost)} por ${unit}.`;
-}
-
-function applyItemPackagePreset() {
-  const form = $("#new-item-form");
-  const preset = itemPackagePresets[form.elements.packagePreset.value];
-  if (preset) {
-    form.elements.packageName.value = preset.packageName;
-    form.elements.unit.value = preset.unit;
-    form.elements.unitsPerPackage.value = preset.unitsPerPackage;
-  }
-  updateItemStockPreview();
-}
 
 function openInventoryForm(id) {
   ["new-item-form", "new-product-form", "purchase-form"].forEach((formId) => {
@@ -750,9 +765,20 @@ $("#payment-methods").addEventListener("click", (event) => {
   if (method === "cash") $("#payment-reference").value = "";
 });
 
-$("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#item-category-input"), $("#item-new-category-field")); openInventoryForm("new-item-form"); applyItemPackagePreset(); });
+$("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#item-category-input"), $("#item-new-category-field")); openInventoryForm("new-item-form"); });
 $("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#new-product-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#product-category-input"), $("#product-new-category-field")); setImagePreview(form.elements.image, $("#product-image-preview")); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); updateProductPricingPreview(); });
-$("#show-purchase").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#purchase-form"); openInventoryForm("purchase-form"); $("#purchase-rows").replaceChildren(); addRecipeRow("purchase"); const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); form.elements.purchasedAt.value = now; });
+$("#show-purchase").addEventListener("click", () => {
+  if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true);
+  const form = $("#purchase-form");
+  form.reset();
+  refreshSupplierSelect(state.suppliers.length ? "" : NEW_SUPPLIER);
+  toggleNewSupplier();
+  openInventoryForm("purchase-form");
+  $("#purchase-rows").replaceChildren();
+  addRecipeRow("purchase");
+  const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  form.elements.purchasedAt.value = now;
+});
 $("#add-recipe-row").addEventListener("click", () => addRecipeRow("recipe"));
 $("#add-purchase-row").addEventListener("click", () => addRecipeRow("purchase"));
 $("#recipe-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#recipe-rows")).length > 1) { event.target.closest(".recipe-row").remove(); updateProductPricingPreview(); } });
@@ -768,16 +794,47 @@ $("#purchase-rows").addEventListener("input", (event) => {
   }
   updateInventoryRow(row, "purchase");
 });
-$("#item-package-preset").addEventListener("change", applyItemPackagePreset);
+$("#purchase-supplier").addEventListener("change", toggleNewSupplier);
 $("#item-category-input").addEventListener("change", () => toggleNewCategory($("#item-category-input"), $("#item-new-category-field")));
 $("#product-category-input").addEventListener("change", () => toggleNewCategory($("#product-category-input"), $("#product-new-category-field")));
 $("#new-product-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-preview")));
-$("#new-item-form").addEventListener("input", updateItemStockPreview);
 $("#new-product-form").addEventListener("input", updateProductPricingPreview);
 $$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); if (form.id === "new-product-form") setImagePreview(form.elements.image, $("#product-image-preview")); }));
-$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), unit: values.unit, packageName: values.packageName, unitsPerPackage: Number(values.unitsPerPackage), initialPackages: Number(values.initialPackages || 0), packageCost: Number(values.packageCost || 0), minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; applyItemPackagePreset(); toast("Artículo físico creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), unit: values.unit, minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; toast("Artículo físico creado. Registre su existencia mediante una compra."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); const image = form.elements.image.files?.[0]; try { const result = await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), barcode: values.barcode || null, salePrice: Number(values.salePrice), targetMargin: Number(values.targetMargin || 70) / 100, taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); if (image) { try { await uploadProductImage(result.id, image); } catch (uploadError) { toast(`Producto creado con la imagen predeterminada; la foto seleccionada no se guardó: ${uploadError.message}`, true); await loadInventory(); return; } } form.reset(); form.hidden = true; setImagePreview(form.elements.image, $("#product-image-preview")); toast(`Producto creado · precio sugerido ${money.format(result.suggestedPrice)}.`); await loadInventory(); } catch (error) { toast(error.message, true); } });
-$("#purchase-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/purchases", { method: "POST", body: JSON.stringify({ invoiceNumber: values.invoiceNumber || null, purchasedAt: new Date(values.purchasedAt).toISOString(), notes: values.notes, items: collectRows("#purchase-rows") }) }); form.reset(); form.hidden = true; toast("Compra recibida e inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#purchase-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  try {
+    let supplierId = Number(values.supplierId);
+    if (values.supplierId === NEW_SUPPLIER) {
+      const supplier = await api("/api/inventory/suppliers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: values.supplierName,
+          contactName: values.supplierContact || null,
+          phone: values.supplierPhone || null
+        })
+      });
+      supplierId = Number(supplier.id);
+    }
+    await api("/api/inventory/purchases", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        invoiceNumber: values.invoiceNumber || null,
+        purchasedAt: new Date(values.purchasedAt).toISOString(),
+        notes: values.notes,
+        items: collectRows("#purchase-rows")
+      })
+    });
+    form.reset();
+    form.hidden = true;
+    toast("Compra recibida e inventario actualizado.");
+    await loadInventory();
+  } catch (error) { toast(error.message, true); }
+});
 $("#inventory-search").addEventListener("input", renderInventory);
 $("#articles-search").addEventListener("input", renderArticles);
 $$("[data-go-inventory]").forEach((button) => button.addEventListener("click", () => navigate("inventory")));
