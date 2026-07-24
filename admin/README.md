@@ -38,11 +38,11 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 ## Modelo de artículos y productos
 
 - **Artículo físico:** lo que se almacena y cuenta. Define su identidad,
-  categoría y unidad base de inventario, pero no fija un proveedor,
-  presentación ni precio de compra.
-- **Compra:** registra el proveedor, la presentación recibida, su contenido,
-  cantidad y precio real por cada factura. Conserva el historial aunque esos
-  datos cambien entre proveedores o fechas.
+  categoría y unidad base de inventario, pero no fija presentación ni precio
+  de compra.
+- **Compra:** registra la presentación recibida, su contenido, cantidad entera
+  y precio real por cada factura. Conserva el historial aunque esos datos
+  cambien entre compras.
 - **Producto de venta:** lo que aparece en el POS. Su composición indica qué
   artículos y cantidades se descuentan por cada unidad vendida.
 
@@ -50,7 +50,7 @@ La administración mantiene estos flujos en menús independientes:
 
 - **Artículos:** creación del catálogo físico y sus unidades de control;
 - **Productos:** creación del catálogo del POS, recetas, costos y márgenes;
-- **Inventario:** compras por proveedor, presentaciones, precios, existencias,
+- **Inventario:** compras, presentaciones, precios, existencias,
   conteos, ajustes y mermas.
 
 Los formularios de artículos y productos incluyen catálogos amplios de
@@ -91,7 +91,7 @@ Ejemplos al registrar una compra:
 Los costos de compra se introducen por caja, paquete o botella en cada
 recepción. El sistema los convierte automáticamente a costo por unidad base,
 recalcula el costo promedio ponderado y conserva la factura histórica. En la
-siguiente compra muestra la última presentación, proveedor y precio como una
+siguiente compra muestra la última presentación y precio como una
 referencia editable; nunca impide registrar condiciones distintas.
 
 El formulario de compra incluye paquetes y cajas de distintos tamaños,
@@ -129,7 +129,7 @@ reemplaza la identidad de un SKU existente. Solo normaliza a `Unidad base` los
 artículos `PA-` que continúan en cero y no tienen compras ni movimientos; nunca
 modifica registros con historial operativo. Todos los artículos nuevos
 empiezan con existencia, mínimo y costo en cero. Esto evita registrar precios o
-cantidades que no correspondan a las facturas reales de los proveedores.
+cantidades que no correspondan a las facturas reales.
 Después de importarlo, registre la primera compra desde **Inventario >
 Registrar compra**.
 

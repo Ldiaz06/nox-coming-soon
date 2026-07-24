@@ -45,12 +45,11 @@ function inventory_items(array $params = [])
              ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
              LIMIT 1
            )
-         LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id
-         LEFT JOIN suppliers supplier ON supplier.id = last_purchase.supplier_id";
+         LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id";
     $where = ' WHERE i.active = TRUE';
     $values = [];
     if ($search !== '') {
-        $where .= " AND LOWER(CONCAT_WS(' ', i.sku, i.name, i.category, last_line.package_name, supplier.name)) LIKE ?";
+        $where .= " AND LOWER(CONCAT_WS(' ', i.sku, i.name, i.category, last_line.package_name)) LIKE ?";
         $values[] = '%' . strtolower($search) . '%';
     }
     $countStatement = db()->prepare("SELECT COUNT(*) {$joins}{$where}");
@@ -69,7 +68,6 @@ function inventory_items(array $params = [])
                 last_line.units_per_package AS referenceUnitsPerPackage,
                 last_line.package_cost AS referencePackageCost,
                 last_purchase.purchased_at AS referencePurchasedAt,
-                supplier.name AS referenceSupplier,
                 i.active, i.current_stock <= i.minimum_stock AS lowStock
          {$joins}{$where}
          ORDER BY i.category, i.name
@@ -94,8 +92,7 @@ function inventory_item_options(array $params = [])
                 i.target_stock_days AS targetStockDays,
                 last_line.package_name AS referencePackageName,
                 last_line.units_per_package AS referenceUnitsPerPackage,
-                last_line.package_cost AS referencePackageCost,
-                supplier.name AS referenceSupplier
+                last_line.package_cost AS referencePackageCost
          FROM inventory_items i
          LEFT JOIN purchase_items last_line
            ON last_line.id = (
@@ -107,66 +104,16 @@ function inventory_item_options(array $params = [])
              ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
              LIMIT 1
            )
-         LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id
-         LEFT JOIN suppliers supplier ON supplier.id = last_purchase.supplier_id
          WHERE i.active = TRUE ORDER BY i.category, i.name'
     )->fetchAll();
-    json_response(['items' => $rows]);
-}
-
-function inventory_suppliers(array $params = [])
-{
-    require_roles(['admin', 'supervisor']);
-    $rows = db()->query(
-        'SELECT id, name, contact_name AS contactName, phone, email
-         FROM suppliers WHERE active = TRUE ORDER BY name'
+    $presentations = db()->query(
+        "SELECT package_name AS name, units_per_package AS unitsPerPackage
+         FROM purchase_items
+         WHERE package_name IS NOT NULL AND TRIM(package_name) <> ''
+         GROUP BY package_name, units_per_package
+         ORDER BY package_name, units_per_package"
     )->fetchAll();
-    json_response(['suppliers' => $rows]);
-}
-
-function inventory_supplier_create(array $params = [])
-{
-    require_csrf();
-    $user = require_roles(['admin', 'supervisor']);
-    $body = request_body();
-    $name = value_string($body, 'name', 2, 180) ?? '';
-    $contactName = value_string($body, 'contactName', 0, 160, false);
-    $phone = value_string($body, 'phone', 0, 60, false);
-    $email = value_string($body, 'email', 0, 190, false);
-
-    $existing = db()->prepare('SELECT id, active FROM suppliers WHERE LOWER(name) = LOWER(?) LIMIT 1');
-    $existing->execute([$name]);
-    $existingSupplier = $existing->fetch();
-    if ($existingSupplier) {
-        $existingId = (int) $existingSupplier['id'];
-        transaction(function (PDO $pdo) use ($user, $existingId, $name, $contactName, $phone, $email): void {
-            $pdo->prepare(
-                'UPDATE suppliers
-                 SET active = TRUE,
-                     contact_name = COALESCE(?, contact_name),
-                     phone = COALESCE(?, phone),
-                     email = COALESCE(?, email)
-                 WHERE id = ?'
-            )->execute([$contactName, $phone, $email, $existingId]);
-            audit_log($pdo, $user, 'reuse', 'supplier', $existingId, null, ['name' => $name]);
-        });
-        json_response(['id' => $existingId, 'reused' => true]);
-    }
-
-    $id = transaction(function (PDO $pdo) use ($user, $name, $contactName, $phone, $email): int {
-        $statement = $pdo->prepare(
-            'INSERT INTO suppliers (name, contact_name, phone, email) VALUES (?, ?, ?, ?)'
-        );
-        $statement->execute([$name, $contactName, $phone, $email]);
-        $id = (int) $pdo->lastInsertId();
-        audit_log($pdo, $user, 'create', 'supplier', $id, null, [
-            'name' => $name,
-            'contactName' => $contactName,
-            'phone' => $phone,
-        ]);
-        return $id;
-    });
-    json_response(['id' => $id, 'reused' => false], 201);
+    json_response(['items' => $rows, 'presentations' => $presentations]);
 }
 
 function inventory_products(array $params = [])
@@ -545,7 +492,6 @@ function inventory_purchase_create(array $params = [])
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
     $body = request_body();
-    $supplierId = value_id($body, 'supplierId');
     $invoice = value_string($body, 'invoiceNumber', 0, 100, false);
     $notes = value_string($body, 'notes', 0, 500, false);
     $purchasedAt = value_string($body, 'purchasedAt', 10, 40) ?? '';
@@ -565,22 +511,22 @@ function inventory_purchase_create(array $params = [])
             'itemId' => value_id($line, 'itemId'),
             'packageName' => value_string($line, 'packageName', 2, 80) ?? '',
             'unitsPerPackage' => value_number($line, 'unitsPerPackage', 0.0001),
-            'packageQuantity' => value_number($line, 'packageQuantity', 0.0001),
+            'packageQuantity' => value_number($line, 'packageQuantity', 1),
             'packageCost' => value_number($line, 'packageCost', 0),
         ];
+        $packageQuantity = (float) $items[count($items) - 1]['packageQuantity'];
+        if (abs($packageQuantity - round($packageQuantity)) > 0.000001) {
+            throw new ApiError('La cantidad de presentaciones debe ser un número entero.');
+        }
+        $items[count($items) - 1]['packageQuantity'] = (int) round($packageQuantity);
     }
 
-    $id = transaction(function (PDO $pdo) use ($user, $supplierId, $invoice, $notes, $purchasedDate, $items): int {
-        $supplier = $pdo->prepare('SELECT id FROM suppliers WHERE id = ? AND active = TRUE');
-        $supplier->execute([$supplierId]);
-        if (!$supplier->fetchColumn()) {
-            throw new ApiError('El proveedor seleccionado no es válido.');
-        }
+    $id = transaction(function (PDO $pdo) use ($user, $invoice, $notes, $purchasedDate, $items): int {
         $total = array_reduce($items, fn (float $sum, array $item): float => $sum + $item['packageQuantity'] * $item['packageCost'], 0.0);
         $purchase = $pdo->prepare(
-            'INSERT INTO purchases (supplier_id, invoice_number, purchased_at, total, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO purchases (invoice_number, purchased_at, total, notes, created_by) VALUES (?, ?, ?, ?, ?)'
         );
-        $purchase->execute([$supplierId, $invoice, $purchasedDate->format('Y-m-d H:i:s'), money_round($total), $notes, $user['id']]);
+        $purchase->execute([$invoice, $purchasedDate->format('Y-m-d H:i:s'), money_round($total), $notes, $user['id']]);
         $id = (int) $pdo->lastInsertId();
         foreach ($items as $line) {
             $select = $pdo->prepare(

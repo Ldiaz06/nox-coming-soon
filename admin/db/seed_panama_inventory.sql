@@ -2,8 +2,8 @@
 -- Ejecutar después de schema.sql.
 -- Es idempotente: INSERT IGNORE conserva cualquier SKU que ya exista.
 -- Existencias, mínimos y costos empiezan en cero para no inventar datos.
--- El catálogo solo define la unidad de control. Proveedor, presentación,
--- conversión y precio real se registran desde Compras al recibir mercancía.
+-- El catálogo solo define la unidad de control. Presentación, conversión y
+-- precio real se registran desde Compras al recibir mercancía.
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE noxpana_noxpa;

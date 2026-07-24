@@ -138,22 +138,8 @@ CREATE TABLE IF NOT EXISTS product_recipes (
   CONSTRAINT recipes_quantity_ck CHECK (quantity > 0)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS suppliers (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  name VARCHAR(180) NOT NULL,
-  tax_id VARCHAR(80) NULL,
-  contact_name VARCHAR(160) NULL,
-  phone VARCHAR(60) NULL,
-  email VARCHAR(190) NULL,
-  active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY suppliers_name_idx (name)
-) ENGINE=InnoDB;
-
 CREATE TABLE IF NOT EXISTS purchases (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  supplier_id BIGINT UNSIGNED NULL,
   invoice_number VARCHAR(100) NULL,
   purchased_at DATETIME NOT NULL,
   total DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -163,7 +149,6 @@ CREATE TABLE IF NOT EXISTS purchases (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY purchases_date_idx (purchased_at),
-  CONSTRAINT purchases_supplier_fk FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
   CONSTRAINT purchases_user_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
@@ -361,6 +346,31 @@ BEGIN
   DECLARE secondary_column_exists INT DEFAULT 0;
   DECLARE index_exists INT DEFAULT 0;
   DECLARE constraint_exists INT DEFAULT 0;
+
+  -- El flujo de compras de NOX no administra proveedores. En instalaciones
+  -- anteriores se eliminan de forma segura la relación, la columna y la tabla.
+  SELECT COUNT(*) INTO constraint_exists
+  FROM information_schema.table_constraints
+  WHERE constraint_schema = DATABASE()
+    AND table_name = 'purchases'
+    AND constraint_name = 'purchases_supplier_fk'
+    AND constraint_type = 'FOREIGN KEY';
+
+  IF constraint_exists > 0 THEN
+    ALTER TABLE purchases DROP FOREIGN KEY purchases_supplier_fk;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'purchases'
+    AND column_name = 'supplier_id';
+
+  IF column_exists > 0 THEN
+    ALTER TABLE purchases DROP COLUMN supplier_id;
+  END IF;
+
+  DROP TABLE IF EXISTS suppliers;
 
   -- users.email -> users.username
   SELECT COUNT(*) INTO column_exists

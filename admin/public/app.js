@@ -8,7 +8,7 @@ const state = {
   inventoryRows: [],
   articleRows: [],
   inventoryProducts: [],
-  suppliers: [],
+  purchasePresentations: [],
   users: [],
   cashSessions: [],
   terminals: [],
@@ -36,7 +36,7 @@ const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", li
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const NEW_CATEGORY = "__new_category__";
-const NEW_SUPPLIER = "__new_supplier__";
+const CUSTOM_PACKAGE = "__custom_package__";
 const DEFAULT_PRODUCT_IMAGE = "/assets/product-default-v3.webp";
 const articleCategories = [
   "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
@@ -189,31 +189,6 @@ function categoryFromForm(form) {
     : selected;
   if (category.length < 2) throw new Error("Seleccione o escriba una categoría válida.");
   return category;
-}
-
-function refreshSupplierSelect(selected = "") {
-  const select = $("#purchase-supplier");
-  select.innerHTML = [
-    '<option value="">Seleccione un proveedor</option>',
-    ...state.suppliers.map((supplier) => `<option value="${supplier.id}">${escapeHtml(supplier.name)}</option>`),
-    `<option value="${NEW_SUPPLIER}">+ Agregar nuevo proveedor</option>`
-  ].join("");
-  if ([...select.options].some((option) => option.value === String(selected))) {
-    select.value = String(selected);
-  }
-}
-
-function toggleNewSupplier() {
-  const isNew = $("#purchase-supplier").value === NEW_SUPPLIER;
-  ["#purchase-new-supplier-field", "#purchase-new-contact-field", "#purchase-new-phone-field"]
-    .forEach((selector) => { $(selector).hidden = !isNew; });
-  const name = $("#purchase-form [name=supplierName]");
-  name.required = isNew;
-  if (!isNew) {
-    name.value = "";
-    $("#purchase-form [name=supplierContact]").value = "";
-    $("#purchase-form [name=supplierPhone]").value = "";
-  }
 }
 
 function setImagePreview(input, container) {
@@ -472,15 +447,11 @@ async function loadInventory() {
 
 async function ensureInventoryContext(force = false) {
   if (state.catalogReady && !force) return;
-  const [{ items }, { suppliers }] = await Promise.all([
-    api("/api/inventory/item-options"),
-    api("/api/inventory/suppliers")
-  ]);
+  const { items, presentations = [] } = await api("/api/inventory/item-options");
   state.inventory = items;
-  state.suppliers = suppliers;
+  state.purchasePresentations = presentations;
   state.catalogReady = true;
   refreshCategoryCatalogs();
-  refreshSupplierSelect($("#purchase-supplier").value);
 }
 
 async function loadInventoryPage() {
@@ -521,7 +492,7 @@ function renderInventory() {
   $("#inventory-table").innerHTML = items.map((item) => {
     const lowStock = Number(item.lowStock) === 1;
     const reference = item.referencePackageName
-      ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}${item.referenceSupplier ? ` · ${escapeHtml(item.referenceSupplier)}` : ""}</small>`
+      ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small>`
       : '<span class="badge">Sin compras</span><small>La primera presentación y precio se definen al comprar.</small>';
     return `<tr>
       <td>${escapeHtml(item.sku)}</td>
@@ -560,15 +531,24 @@ function renderArticles() {
     <td><strong>${escapeHtml(item.name)}</strong></td>
     <td>${escapeHtml(item.category)}</td>
     <td>${escapeHtml(unitNames[item.unit] || item.unit)}</td>
-    <td>${item.referencePackageName ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${escapeHtml(item.referenceSupplier || "Proveedor no indicado")}</small>` : '<span class="badge">Sin compras</span>'}</td>
+    <td>${item.referencePackageName ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small>` : '<span class="badge">Sin compras</span>'}</td>
     <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
   </tr>`).join("") || '<tr><td colspan="6" class="empty-state">No hay artículos con este filtro.</td></tr>';
 }
 
 function inventoryOptions() {
-  return state.inventory.length
-    ? state.inventory.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · control en ${escapeHtml(unitNames[item.unit] || item.unit)}</option>`).join("")
-    : '<option value="">Primero cree un artículo físico</option>';
+  if (!state.inventory.length) return '<option value="">Primero cree un artículo físico</option>';
+  const grouped = new Map();
+  [...state.inventory]
+    .sort((a, b) => `${a.category} ${a.name}`.localeCompare(`${b.category} ${b.name}`, "es", { sensitivity: "base" }))
+    .forEach((item) => {
+      if (!grouped.has(item.category)) grouped.set(item.category, []);
+      grouped.get(item.category).push(item);
+    });
+  return [...grouped.entries()].map(([category, items]) => `
+    <optgroup label="${escapeHtml(category)}">
+      ${items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${escapeHtml(unitNames[item.unit] || item.unit)}</option>`).join("")}
+    </optgroup>`).join("");
 }
 
 function selectedInventoryItem(row) {
@@ -592,14 +572,24 @@ function updateInventoryRow(row, kind, resetPresentation = false) {
     return;
   }
   if (resetPresentation) {
-    $("[name=packageName]", row).value = item.referencePackageName || "Unidad";
+    const referenceName = item.referencePackageName || "Unidad";
+    const packageSelect = $("[name=packageName]", row);
+    const customInput = $("[name=packageNameCustom]", row);
+    if ([...packageSelect.options].some((option) => option.value === referenceName)) {
+      packageSelect.value = referenceName;
+      customInput.value = "";
+    } else {
+      packageSelect.value = CUSTOM_PACKAGE;
+      customInput.value = referenceName;
+    }
+    syncCustomPackageField(row);
     $("[name=unitsPerPackage]", row).value = item.referenceUnitsPerPackage || 1;
     $("[name=packageCost]", row).value = item.referencePackageCost || 0;
   }
-  const packageName = $("[name=packageName]", row).value || "presentación";
+  const packageName = selectedPackageName(row) || "presentación";
   const unitsPerPackage = Number($("[name=unitsPerPackage]", row).value || 0);
   const reference = item.referencePackageName
-    ? ` Última compra: ${item.referencePackageName} a ${money.format(item.referencePackageCost)}${item.referenceSupplier ? ` con ${item.referenceSupplier}` : ""}.`
+    ? ` Última compra: ${item.referencePackageName} a ${money.format(item.referencePackageCost)}.`
     : " No hay compras anteriores; complete los datos de esta factura.";
   hint.textContent = `1 ${packageName} agrega ${quantityNumber.format(unitsPerPackage)} ${unit} al inventario.${reference}`;
 }
@@ -610,7 +600,7 @@ function addRecipeRow(kind) {
   row.className = `recipe-row recipe-row--${kind}`;
   row.innerHTML = kind === "recipe"
     ? `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select></label><label>Cantidad por cada venta<input name="quantity" type="number" min="0.0001" step="0.0001" required><small class="field-hint" data-conversion-hint></small></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`
-    : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<input name="packageName" list="purchase-package-names" maxlength="80" required></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="0.0001" step="0.001" required></label><label>Precio pagado por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
+    : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<select name="packageName" required>${purchasePackageOptions()}</select><input name="packageNameCustom" class="inline-custom-input" maxlength="80" placeholder="Nombre de la nueva presentación" hidden></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="1" step="1" inputmode="numeric" required></label><label>Precio pagado por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
   container.append(row);
   updateInventoryRow(row, kind, true);
   if (kind === "recipe") updateProductPricingPreview();
@@ -620,7 +610,7 @@ function collectRows(containerSelector) {
   return $$(".recipe-row", $(containerSelector)).map((row) => ({
     itemId: Number($("[name=itemId]", row).value),
     ...($("[name=quantity]", row) ? { quantity: Number($("[name=quantity]", row).value) } : {}),
-    ...($("[name=packageName]", row) ? { packageName: $("[name=packageName]", row).value } : {}),
+    ...($("[name=packageName]", row) ? { packageName: selectedPackageName(row) } : {}),
     ...($("[name=unitsPerPackage]", row) ? { unitsPerPackage: Number($("[name=unitsPerPackage]", row).value) } : {}),
     ...($("[name=packageQuantity]", row) ? { packageQuantity: Number($("[name=packageQuantity]", row).value) } : {}),
     ...($("[name=packageCost]", row) ? { packageCost: Number($("[name=packageCost]", row).value) } : {})
@@ -684,7 +674,73 @@ const itemPackagePresets = {
   "bag-1000": { packageName: "Bolsa de 1 kg", unit: "gram", unitsPerPackage: 1000 },
   "bag-5000": { packageName: "Bolsa de 5 kg", unit: "gram", unitsPerPackage: 5000 }
 };
-const purchasePackageSizes = Object.fromEntries(Object.values(itemPackagePresets).map((preset) => [preset.packageName, preset.unitsPerPackage]));
+
+function purchasePackageGroup(name, saved = false) {
+  if (saved) return "Presentaciones guardadas";
+  if (name.startsWith("Botella")) return "Botellas";
+  if (name.startsWith("Barril")) return "Barriles";
+  if (name.startsWith("Bolsa")) return "Presentaciones por peso";
+  return "Unidades, paquetes y cajas";
+}
+
+function purchasePackageCatalog() {
+  const catalog = [];
+  const known = new Set();
+  Object.values(itemPackagePresets).forEach((preset) => {
+    catalog.push({ name: preset.packageName, unitsPerPackage: Number(preset.unitsPerPackage), saved: false });
+    known.add(preset.packageName.toLocaleLowerCase("es"));
+  });
+  state.purchasePresentations.forEach((presentation) => {
+    const name = String(presentation.name || "").trim();
+    if (!name || known.has(name.toLocaleLowerCase("es"))) return;
+    catalog.push({ name, unitsPerPackage: Number(presentation.unitsPerPackage), saved: true });
+    known.add(name.toLocaleLowerCase("es"));
+  });
+  return catalog;
+}
+
+function purchasePackageOptions() {
+  const groups = new Map();
+  purchasePackageCatalog().forEach((presentation) => {
+    const group = purchasePackageGroup(presentation.name, presentation.saved);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(presentation);
+  });
+  return [
+    ...[...groups.entries()].map(([group, presentations]) => `
+      <optgroup label="${escapeHtml(group)}">
+        ${presentations.map((presentation) => `<option value="${escapeHtml(presentation.name)}">${escapeHtml(presentation.name)}</option>`).join("")}
+      </optgroup>`),
+    `<option value="${CUSTOM_PACKAGE}">+ Agregar nueva presentación</option>`
+  ].join("");
+}
+
+function packageSizeForName(name) {
+  return purchasePackageCatalog().find((presentation) => presentation.name === name)?.unitsPerPackage || null;
+}
+
+function selectedPackageName(row) {
+  const selected = $("[name=packageName]", row)?.value || "";
+  return selected === CUSTOM_PACKAGE
+    ? ($("[name=packageNameCustom]", row)?.value || "").trim()
+    : selected;
+}
+
+function syncCustomPackageField(row, updateUnits = false) {
+  const select = $("[name=packageName]", row);
+  const custom = $("[name=packageNameCustom]", row);
+  if (!select || !custom) return;
+  const isCustom = select.value === CUSTOM_PACKAGE;
+  custom.hidden = !isCustom;
+  custom.required = isCustom;
+  if (!isCustom) {
+    custom.value = "";
+    if (updateUnits) {
+      const units = packageSizeForName(select.value);
+      if (units) $("[name=unitsPerPackage]", row).value = units;
+    }
+  }
+}
 
 function openInventoryForm(id) {
   ["new-item-form", "new-product-form", "purchase-form"].forEach((formId) => {
@@ -893,8 +949,6 @@ $("#show-purchase").addEventListener("click", () => {
   if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true);
   const form = $("#purchase-form");
   form.reset();
-  refreshSupplierSelect(state.suppliers.length ? "" : NEW_SUPPLIER);
-  toggleNewSupplier();
   openInventoryForm("purchase-form");
   $("#purchase-rows").replaceChildren();
   addRecipeRow("purchase");
@@ -907,16 +961,20 @@ $("#recipe-rows").addEventListener("click", (event) => { if (event.target.closes
 $("#purchase-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#purchase-rows")).length > 1) event.target.closest(".recipe-row").remove(); });
 $("#recipe-rows").addEventListener("change", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "recipe"); });
 $("#recipe-rows").addEventListener("input", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "recipe"); });
-$("#purchase-rows").addEventListener("change", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "purchase", event.target.name === "itemId"); });
+$("#purchase-rows").addEventListener("change", (event) => {
+  const row = event.target.closest(".recipe-row");
+  if (!row) return;
+  if (event.target.name === "packageName") syncCustomPackageField(row, true);
+  updateInventoryRow(row, "purchase", event.target.name === "itemId");
+});
 $("#purchase-rows").addEventListener("input", (event) => {
   const row = event.target.closest(".recipe-row");
   if (!row) return;
-  if (event.target.name === "packageName" && purchasePackageSizes[event.target.value]) {
-    $("[name=unitsPerPackage]", row).value = purchasePackageSizes[event.target.value];
+  if (event.target.name === "packageName") {
+    syncCustomPackageField(row, true);
   }
   updateInventoryRow(row, "purchase");
 });
-$("#purchase-supplier").addEventListener("change", toggleNewSupplier);
 $("#item-category-input").addEventListener("change", () => toggleNewCategory($("#item-category-input"), $("#item-new-category-field")));
 $("#product-category-input").addEventListener("change", () => toggleNewCategory($("#product-category-input"), $("#product-new-category-field")));
 $("#new-product-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-preview")));
@@ -929,22 +987,9 @@ $("#purchase-form").addEventListener("submit", async (event) => {
   const form = event.currentTarget;
   const values = formValues(form);
   try {
-    let supplierId = Number(values.supplierId);
-    if (values.supplierId === NEW_SUPPLIER) {
-      const supplier = await api("/api/inventory/suppliers", {
-        method: "POST",
-        body: JSON.stringify({
-          name: values.supplierName,
-          contactName: values.supplierContact || null,
-          phone: values.supplierPhone || null
-        })
-      });
-      supplierId = Number(supplier.id);
-    }
     await api("/api/inventory/purchases", {
       method: "POST",
       body: JSON.stringify({
-        supplierId,
         invoiceNumber: values.invoiceNumber || null,
         purchasedAt: new Date(values.purchasedAt).toISOString(),
         notes: values.notes,
