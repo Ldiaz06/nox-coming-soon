@@ -31,7 +31,7 @@ function inventory_products(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
-        'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.sale_price AS salePrice,
+        'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.image_path AS imageUrl, p.sale_price AS salePrice,
                 p.tax_rate AS taxRate, p.target_margin AS targetMargin, p.active,
                 r.inventory_item_id AS itemId, r.quantity, i.sku AS itemSku,
                 i.name AS itemName, i.unit, i.average_cost AS averageCost
@@ -51,6 +51,7 @@ function inventory_products(array $params = [])
                 'barcode' => $row['barcode'],
                 'name' => $row['name'],
                 'category' => $row['category'],
+                'imageUrl' => $row['imageUrl'],
                 'salePrice' => $row['salePrice'],
                 'taxRate' => $row['taxRate'],
                 'targetMargin' => $row['targetMargin'],
@@ -238,6 +239,92 @@ function inventory_product_create(array $params = [])
     json_response($result, 201);
 }
 
+function inventory_product_image_upload(array $params = [])
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $productId = path_id($params);
+    $file = $_FILES['image'] ?? null;
+
+    if (!is_array($file) || !isset($file['error'], $file['tmp_name'], $file['size'])) {
+        throw new ApiError('Seleccione una fotografía para el producto.');
+    }
+    if ((int) $file['error'] !== UPLOAD_ERR_OK) {
+        $messages = [
+            UPLOAD_ERR_INI_SIZE => 'La fotografía supera el límite permitido por el servidor.',
+            UPLOAD_ERR_FORM_SIZE => 'La fotografía es demasiado grande.',
+            UPLOAD_ERR_PARTIAL => 'La fotografía no terminó de cargarse.',
+            UPLOAD_ERR_NO_FILE => 'Seleccione una fotografía para el producto.',
+        ];
+        throw new ApiError($messages[(int) $file['error']] ?? 'No fue posible cargar la fotografía.');
+    }
+    if ((int) $file['size'] <= 0 || (int) $file['size'] > 5 * 1024 * 1024) {
+        throw new ApiError('La fotografía debe pesar como máximo 5 MB.');
+    }
+    if (!is_uploaded_file((string) $file['tmp_name'])) {
+        throw new ApiError('El archivo cargado no es válido.');
+    }
+
+    $imageInfo = @getimagesize((string) $file['tmp_name']);
+    if ($imageInfo === false || ($imageInfo[0] ?? 0) < 32 || ($imageInfo[1] ?? 0) < 32
+        || ($imageInfo[0] ?? 0) > 8000 || ($imageInfo[1] ?? 0) > 8000) {
+        throw new ApiError('La fotografía no es una imagen válida o sus dimensiones no están permitidas.');
+    }
+    $mime = isset($imageInfo['mime']) ? (string) $imageInfo['mime'] : '';
+    $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+    if (!isset($extensions[$mime])) {
+        throw new ApiError('Use una fotografía JPG, PNG o WebP.');
+    }
+
+    $pdo = db();
+    $statement = $pdo->prepare('SELECT id, image_path FROM products WHERE id = ?');
+    $statement->execute([$productId]);
+    $product = $statement->fetch();
+    if (!$product) {
+        throw new ApiError('Producto no encontrado.', 404);
+    }
+
+    $uploadDirectory = dirname(__DIR__) . '/public/uploads/products';
+    if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0755, true) && !is_dir($uploadDirectory)) {
+        throw new ApiError('No fue posible preparar el directorio de fotografías.', 500);
+    }
+    $fileName = 'product-' . $productId . '-' . bin2hex(random_bytes(12)) . '.' . $extensions[$mime];
+    $destination = $uploadDirectory . '/' . $fileName;
+    if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+        throw new ApiError('No fue posible guardar la fotografía en el servidor.', 500);
+    }
+    @chmod($destination, 0644);
+    $imagePath = '/uploads/products/' . $fileName;
+
+    try {
+        transaction(function (PDO $transaction) use ($user, $productId, $product, $imagePath): void {
+            $update = $transaction->prepare('UPDATE products SET image_path = ? WHERE id = ?');
+            $update->execute([$imagePath, $productId]);
+            audit_log($transaction, $user, 'update_image', 'product', $productId, [
+                'imagePath' => $product['image_path'],
+            ], [
+                'imagePath' => $imagePath,
+            ]);
+        });
+    } catch (Throwable $error) {
+        @unlink($destination);
+        throw $error;
+    }
+
+    $previousPath = (string) ($product['image_path'] ?? '');
+    if (strpos($previousPath, '/uploads/products/') === 0) {
+        $previousFile = basename($previousPath);
+        if (preg_match('/^product-[0-9]+-[a-f0-9]{24}\.(jpg|png|webp)$/', $previousFile)) {
+            $previousDestination = $uploadDirectory . '/' . $previousFile;
+            if ($previousDestination !== $destination && is_file($previousDestination)) {
+                @unlink($previousDestination);
+            }
+        }
+    }
+
+    json_response(['imageUrl' => $imagePath]);
+}
+
 function inventory_movement_create(array $params = [])
 {
     require_csrf();
@@ -383,7 +470,7 @@ function pos_products(array $params = [])
 {
     require_auth();
     $rows = db()->query(
-        'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.sale_price AS salePrice, p.tax_rate AS taxRate,
+        'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.image_path AS imageUrl, p.sale_price AS salePrice, p.tax_rate AS taxRate,
                 COALESCE(MIN(i.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
          FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id

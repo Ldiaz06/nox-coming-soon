@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS products (
   sale_price DECIMAL(12,2) NOT NULL,
   tax_rate DECIMAL(7,4) NOT NULL DEFAULT 0,
   target_margin DECIMAL(5,4) NOT NULL DEFAULT 0.7000,
+  image_path VARCHAR(255) NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -565,6 +566,17 @@ BEGIN
   UPDATE products
   SET target_margin = 0.7000
   WHERE target_margin IS NULL OR target_margin < 0.1000 OR target_margin > 0.9500;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'products'
+    AND column_name = 'image_path';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE products
+      ADD COLUMN image_path VARCHAR(255) NULL AFTER target_margin;
+  END IF;
 
   SELECT COUNT(*) INTO index_exists
   FROM information_schema.statistics

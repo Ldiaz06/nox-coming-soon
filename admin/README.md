@@ -48,6 +48,30 @@ La administración mantiene estos flujos en menús independientes:
 - **Productos:** creación del catálogo del POS, recetas, costos y márgenes;
 - **Inventario:** compras, existencias, conteos, ajustes y mermas.
 
+Los formularios de artículos y productos incluyen catálogos amplios de
+categorías para bares y discotecas. Si una categoría no existe, seleccione
+`+ Agregar nueva categoría` y escríbala; después de guardar el registro, esa
+categoría queda disponible automáticamente para los siguientes registros.
+
+Cada producto de venta lleva una fotografía JPG, PNG o WebP de hasta 5 MB. La
+imagen se muestra en el catálogo administrativo y en las tarjetas del POS. Un
+administrador o supervisor puede reemplazarla desde **Productos > Cambiar
+foto**. Los archivos se guardan en:
+
+```text
+/home/noxpana/public_html/admin/public/uploads/products
+```
+
+La carpeta incluye protección contra ejecución de scripts. Si Apache no puede
+guardar una imagen, confirme que el directorio pertenezca al usuario de la
+cuenta:
+
+```bash
+chown -R noxpana:noxpana /home/noxpana/public_html/admin/public/uploads
+find /home/noxpana/public_html/admin/public/uploads -type d -exec chmod 755 {} \;
+find /home/noxpana/public_html/admin/public/uploads -type f -exec chmod 644 {} \;
+```
+
 Ejemplos:
 
 - una caja de 24 cervezas se registra como presentación `Caja de 24`, contenido
@@ -154,7 +178,8 @@ En **phpMyAdmin**, importe el único instalador:
 
 `schema.sql` crea `noxpana_noxpa` si no existe, la selecciona y prepara el
 sistema completo. También sirve para actualizar una instalación existente,
-incluidos los campos de margen, tiempo de entrega y cobertura de inventario.
+incluidos los campos de margen, tiempo de entrega, cobertura de inventario y
+la ruta de fotografía de cada producto.
 Puede ejecutarlo más de una vez: conserva los registros, crea las tablas e
 índices que falten y aplica solamente las adaptaciones pendientes de usuarios,
 planilla y cajas.

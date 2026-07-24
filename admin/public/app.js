@@ -23,6 +23,31 @@ const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", inventory: "
 const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", liter: "litro", fluid_ounce: "oz líquida", gram: "g", kg: "kg", portion: "porción", pack: "paquete", case: "caja", keg: "barril" };
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const NEW_CATEGORY = "__new_category__";
+const articleCategories = [
+  "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
+  "Ron", "Whisky / Whiskey", "Vodka", "Ginebra", "Tequila", "Mezcal", "Brandy y coñac",
+  "Vino tinto", "Vino blanco", "Vino rosado", "Vino espumoso", "Champagne",
+  "Licores y cremas", "Aperitivos y vermut", "Amargos y bitters", "Sake y destilados asiáticos",
+  "Aguas", "Gaseosas y sodas", "Tónicas", "Bebidas energéticas", "Jugos y néctares",
+  "Siropes y cordiales", "Purés", "Café y té", "Frutas y cítricos", "Hierbas y especias",
+  "Decoraciones / garnishes", "Hielo", "Lácteos y cremas", "Carnes", "Pescados y mariscos",
+  "Embutidos y quesos", "Panadería", "Snacks", "Chocolates y postres", "Salsas y condimentos",
+  "Insumos de cocina", "Insumos de barra", "Desechables", "Limpieza e higiene",
+  "Cristalería", "Merchandising", "Otros artículos"
+];
+const productCategories = [
+  "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
+  "Cócteles signature", "Cócteles clásicos", "Cócteles tropicales", "Cócteles sin alcohol",
+  "Highballs", "Spritz", "Martinis", "Margaritas", "Mojitos", "Shots",
+  "Tragos sencillos", "Tragos dobles", "Servicio de ron", "Servicio de whisky",
+  "Servicio de vodka", "Servicio de ginebra", "Servicio de tequila", "Servicio de mezcal",
+  "Brandy y coñac", "Vinos tintos", "Vinos blancos", "Vinos rosados",
+  "Espumosos y champagne", "Licores y digestivos", "Aguas", "Gaseosas y mezcladores",
+  "Jugos", "Energéticas", "Café y té", "Entradas", "Night bites", "Platos fuertes",
+  "Tablas para compartir", "Postres", "Paquetes VIP", "Mesas y reservaciones",
+  "Cover y entradas", "Promociones", "Combos", "Merchandising", "Otros productos"
+];
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
@@ -40,7 +65,7 @@ function toast(message, error = false) {
 async function api(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const headers = { ...(options.headers || {}) };
-  if (options.body) headers["Content-Type"] = "application/json";
+  if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.csrf) headers["X-CSRF-Token"] = state.csrf;
   const requested = new URL(path, window.location.origin);
   const endpoint = new URL("index.php", document.baseURI);
@@ -60,6 +85,66 @@ async function api(path, options = {}) {
     throw new Error(payload.error || "No fue posible completar la operación.");
   }
   return response.status === 204 ? null : response.json();
+}
+
+function sortedUnique(values) {
+  return [...new Set(values.filter(Boolean).map((value) => String(value).trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+}
+
+function populateCategorySelect(select, defaults, existing = []) {
+  const current = select.value;
+  const categories = sortedUnique([...defaults, ...existing]);
+  select.innerHTML = [
+    '<option value="">Seleccione una categoría</option>',
+    ...categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`),
+    `<option value="${NEW_CATEGORY}">+ Agregar nueva categoría</option>`
+  ].join("");
+  if (categories.includes(current) || current === NEW_CATEGORY) select.value = current;
+}
+
+function refreshCategoryCatalogs() {
+  populateCategorySelect($("#item-category-input"), articleCategories, state.inventory.map((item) => item.category));
+  populateCategorySelect($("#product-category-input"), productCategories, state.inventoryProducts.map((product) => product.category));
+}
+
+function toggleNewCategory(select, field) {
+  const isNew = select.value === NEW_CATEGORY;
+  field.hidden = !isNew;
+  const input = $("input", field);
+  input.required = isNew;
+  if (!isNew) input.value = "";
+}
+
+function categoryFromForm(form) {
+  const selected = String(form.elements.category.value || "").trim();
+  const category = selected === NEW_CATEGORY
+    ? String(form.elements.categoryNew.value || "").trim()
+    : selected;
+  if (category.length < 2) throw new Error("Seleccione o escriba una categoría válida.");
+  return category;
+}
+
+function setImagePreview(input, container) {
+  const image = $("img", container);
+  if (container.dataset.objectUrl) URL.revokeObjectURL(container.dataset.objectUrl);
+  container.dataset.objectUrl = "";
+  const file = input.files?.[0];
+  if (!file) {
+    container.hidden = true;
+    image.removeAttribute("src");
+    return;
+  }
+  const objectUrl = URL.createObjectURL(file);
+  container.dataset.objectUrl = objectUrl;
+  image.src = objectUrl;
+  container.hidden = false;
+}
+
+async function uploadProductImage(productId, file) {
+  const body = new FormData();
+  body.append("image", file);
+  return api(`/api/inventory/products/${productId}/image`, { method: "POST", body });
 }
 
 function showLogin() {
@@ -87,6 +172,7 @@ function showApp(user, csrf = state.csrf) {
 
 async function initialize() {
   const today = panamaDate();
+  refreshCategoryCatalogs();
   $("#report-filter [name=anchor]").value = today;
   $("#hours-filter [name=end]").value = today;
   $("#hours-filter [name=start]").value = `${today.slice(0, 8)}01`;
@@ -201,7 +287,9 @@ function renderProducts() {
   const products = state.products.filter((product) => Number(product.available) > 0 && (!category || product.category === category) && (!query || `${product.name} ${product.sku} ${product.barcode || ""}`.toLowerCase().includes(query)));
   $("#product-grid").innerHTML = products.length ? products.map((product) => `
     <button class="product-card" data-product-id="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}, ${money.format(product.salePrice)}">
-      <span class="product-icon" aria-hidden="true">${productIcon(product)}</span>
+      ${product.imageUrl
+        ? `<img class="product-photo" src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async">`
+        : `<span class="product-icon" aria-hidden="true">${productIcon(product)}</span>`}
       <small>${escapeHtml(product.category)} · <span class="product-stock">${Math.floor(product.available)} disponibles</span></small>
       <strong>${escapeHtml(product.name)}</strong><span class="product-price">${money.format(product.salePrice)}</span>
     </button>`).join("") : '<p class="empty-state">No hay productos disponibles con este filtro.</p>';
@@ -276,6 +364,7 @@ async function loadInventory() {
   ]);
   state.inventory = items;
   state.inventoryProducts = products;
+  refreshCategoryCatalogs();
   renderInventory();
   renderArticles();
   $$(".recipe-row", $("#recipe-rows")).forEach((row) => updateInventoryRow(row, "recipe"));
@@ -309,7 +398,9 @@ function renderInventory() {
     const active = Number(product.active) === 1;
     const margin = Number(product.grossMargin || 0);
     const target = Number(product.targetMargin || 0);
-    return `<tr><td>${escapeHtml(product.sku)}</td><td><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}</td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td></tr>`;
+    return `<tr><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell">${product.imageUrl
+      ? `<img class="product-thumb" src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async">`
+      : `<span class="product-thumb product-thumb--empty" aria-hidden="true">${productIcon(product)}</span>`}<div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${product.imageUrl ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td></tr>`;
   }).join("") || '<tr><td colspan="9" class="empty-state">No hay productos de venta registrados.</td></tr>';
 }
 
@@ -661,8 +752,8 @@ $("#payment-methods").addEventListener("click", (event) => {
   if (method === "cash") $("#payment-reference").value = "";
 });
 
-$("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); openInventoryForm("new-item-form"); applyItemPackagePreset(); });
-$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#new-product-form"); form.reset(); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); updateProductPricingPreview(); });
+$("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#item-category-input"), $("#item-new-category-field")); openInventoryForm("new-item-form"); applyItemPackagePreset(); });
+$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#new-product-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#product-category-input"), $("#product-new-category-field")); setImagePreview(form.elements.image, $("#product-image-preview")); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); updateProductPricingPreview(); });
 $("#show-purchase").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#purchase-form"); openInventoryForm("purchase-form"); $("#purchase-rows").replaceChildren(); addRecipeRow("purchase"); const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); form.elements.purchasedAt.value = now; });
 $("#add-recipe-row").addEventListener("click", () => addRecipeRow("recipe"));
 $("#add-purchase-row").addEventListener("click", () => addRecipeRow("purchase"));
@@ -680,16 +771,22 @@ $("#purchase-rows").addEventListener("input", (event) => {
   updateInventoryRow(row, "purchase");
 });
 $("#item-package-preset").addEventListener("change", applyItemPackagePreset);
+$("#item-category-input").addEventListener("change", () => toggleNewCategory($("#item-category-input"), $("#item-new-category-field")));
+$("#product-category-input").addEventListener("change", () => toggleNewCategory($("#product-category-input"), $("#product-new-category-field")));
+$("#new-product-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-preview")));
 $("#new-item-form").addEventListener("input", updateItemStockPreview);
 $("#new-product-form").addEventListener("input", updateProductPricingPreview);
-$$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); }));
-$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, unit: values.unit, packageName: values.packageName, unitsPerPackage: Number(values.unitsPerPackage), initialPackages: Number(values.initialPackages || 0), packageCost: Number(values.packageCost || 0), minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; applyItemPackagePreset(); toast("Artículo físico creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
-$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { const result = await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, barcode: values.barcode || null, salePrice: Number(values.salePrice), targetMargin: Number(values.targetMargin || 70) / 100, taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); form.reset(); form.hidden = true; toast(`Producto creado · precio sugerido ${money.format(result.suggestedPrice)}.`); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); if (form.id === "new-product-form") setImagePreview(form.elements.image, $("#product-image-preview")); }));
+$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), unit: values.unit, packageName: values.packageName, unitsPerPackage: Number(values.unitsPerPackage), initialPackages: Number(values.initialPackages || 0), packageCost: Number(values.packageCost || 0), minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; applyItemPackagePreset(); toast("Artículo físico creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); const image = form.elements.image.files?.[0]; if (!image) return toast("Seleccione una foto para el producto.", true); try { const result = await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), barcode: values.barcode || null, salePrice: Number(values.salePrice), targetMargin: Number(values.targetMargin || 70) / 100, taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); try { await uploadProductImage(result.id, image); } catch (uploadError) { toast(`Producto creado, pero la foto no se guardó: ${uploadError.message}`, true); await loadInventory(); return; } form.reset(); form.hidden = true; setImagePreview(form.elements.image, $("#product-image-preview")); toast(`Producto creado · precio sugerido ${money.format(result.suggestedPrice)}.`); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#purchase-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/purchases", { method: "POST", body: JSON.stringify({ invoiceNumber: values.invoiceNumber || null, purchasedAt: new Date(values.purchasedAt).toISOString(), notes: values.notes, items: collectRows("#purchase-rows") }) }); form.reset(); form.hidden = true; toast("Compra recibida e inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#inventory-search").addEventListener("input", renderInventory);
 $("#articles-search").addEventListener("input", renderArticles);
 $$("[data-go-inventory]").forEach((button) => button.addEventListener("click", () => navigate("inventory")));
 $("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventory.find((row) => Number(row.id) === Number(button.dataset.adjustId)); $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`; $("#adjust-dialog").showModal(); });
+$("#inventory-products-table").addEventListener("click", (event) => { const button = event.target.closest("[data-product-image-id]"); if (!button) return; const product = state.inventoryProducts.find((row) => Number(row.id) === Number(button.dataset.productImageId)); if (!product) return; const form = $("#product-image-form"); form.reset(); form.elements.productId.value = product.id; $("#product-image-name").textContent = product.name; setImagePreview(form.elements.image, $("#product-image-dialog-preview")); $("#product-image-dialog").showModal(); });
+$("#product-image-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-dialog-preview")));
+$("#product-image-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#product-image-dialog").close(); const form = event.currentTarget; const image = form.elements.image.files?.[0]; if (!image) return toast("Seleccione una fotografía.", true); try { await uploadProductImage(Number(form.elements.productId.value), image); $("#product-image-dialog").close(); form.reset(); setImagePreview(form.elements.image, $("#product-image-dialog-preview")); toast("Fotografía del producto actualizada."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#adjust-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#adjust-dialog").close(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/movements", { method: "POST", body: JSON.stringify({ itemId: Number(values.itemId), type: values.type, quantity: Number(values.quantity), notes: values.notes }) }); $("#adjust-dialog").close(); form.reset(); toast("Inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 
 $("#open-cash-form").addEventListener("submit", async (event) => { event.preventDefault(); const values = formValues(event.currentTarget); const message = $(".form-message", event.currentTarget); try { await api("/api/cash/sessions/open", { method: "POST", body: JSON.stringify({ terminalId: Number(values.terminalId), openingAmount: Number(values.openingAmount) }) }); message.textContent = ""; toast("Caja abierta."); await loadCash(); } catch (error) { message.textContent = error.message; } });

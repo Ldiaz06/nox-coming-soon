@@ -13,6 +13,7 @@ add_route('GET', 'inventory/items', 'inventory_items');
 add_route('POST', 'inventory/items', 'inventory_item_create');
 add_route('GET', 'inventory/products', 'inventory_products');
 add_route('POST', 'inventory/products', 'inventory_product_create');
+add_route('POST', 'inventory/products/{id}/image', 'inventory_product_image_upload');
 add_route('POST', 'inventory/movements', 'inventory_movement_create');
 add_route('GET', 'inventory/movements', 'inventory_movements');
 add_route('POST', 'inventory/purchases', 'inventory_purchase_create');
