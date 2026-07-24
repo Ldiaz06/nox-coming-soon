@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   name VARCHAR(180) NOT NULL,
   category VARCHAR(100) NOT NULL,
   unit ENUM('unit', 'bottle', 'ml', 'liter', 'gram', 'kg', 'portion') NOT NULL DEFAULT 'unit',
+  package_name VARCHAR(80) NOT NULL DEFAULT 'Unidad',
+  units_per_package DECIMAL(14,4) NOT NULL DEFAULT 1,
   current_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   minimum_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   average_cost DECIMAL(14,4) NOT NULL DEFAULT 0,
@@ -164,6 +166,10 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   purchase_id BIGINT UNSIGNED NOT NULL,
   inventory_item_id BIGINT UNSIGNED NOT NULL,
+  package_name VARCHAR(80) NOT NULL DEFAULT 'Unidad',
+  package_quantity DECIMAL(14,4) NOT NULL DEFAULT 1,
+  units_per_package DECIMAL(14,4) NOT NULL DEFAULT 1,
+  package_cost DECIMAL(14,4) NOT NULL DEFAULT 0,
   quantity DECIMAL(14,4) NOT NULL,
   unit_cost DECIMAL(14,4) NOT NULL,
   line_total DECIMAL(14,2) GENERATED ALWAYS AS (ROUND(quantity * unit_cost, 2)) STORED,
@@ -459,6 +465,93 @@ BEGIN
   IF index_exists = 0 THEN
     ALTER TABLE login_attempts
       ADD KEY login_attempts_lookup_idx (ip_address, username, attempted_at);
+  END IF;
+
+  -- Presentaciones de compra y unidad base de inventario. Las instalaciones
+  -- anteriores equivalen a una presentación de una sola unidad.
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'package_name';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN package_name VARCHAR(80) NOT NULL DEFAULT 'Unidad' AFTER unit;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'units_per_package';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN units_per_package DECIMAL(14,4) NOT NULL DEFAULT 1 AFTER package_name;
+  END IF;
+
+  UPDATE inventory_items
+  SET package_name = CASE unit
+        WHEN 'bottle' THEN 'Botella'
+        WHEN 'liter' THEN 'Litro'
+        WHEN 'kg' THEN 'Kilogramo'
+        WHEN 'portion' THEN 'Porción'
+        ELSE 'Unidad'
+      END
+  WHERE package_name IS NULL OR TRIM(package_name) = '';
+
+  UPDATE inventory_items
+  SET units_per_package = 1
+  WHERE units_per_package IS NULL OR units_per_package <= 0;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'purchase_items'
+    AND column_name = 'package_name';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE purchase_items
+      ADD COLUMN package_name VARCHAR(80) NOT NULL DEFAULT 'Unidad' AFTER inventory_item_id;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'purchase_items'
+    AND column_name = 'package_quantity';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE purchase_items
+      ADD COLUMN package_quantity DECIMAL(14,4) NOT NULL DEFAULT 1 AFTER package_name;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'purchase_items'
+    AND column_name = 'units_per_package';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE purchase_items
+      ADD COLUMN units_per_package DECIMAL(14,4) NOT NULL DEFAULT 1 AFTER package_quantity;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'purchase_items'
+    AND column_name = 'package_cost';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE purchase_items
+      ADD COLUMN package_cost DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER units_per_package;
+
+    UPDATE purchase_items
+    SET package_quantity = quantity,
+        units_per_package = 1,
+        package_cost = unit_cost;
   END IF;
 
   -- Convertir la modalidad mensual heredada a quincenal. La tarifa siempre se

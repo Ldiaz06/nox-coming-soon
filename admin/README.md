@@ -33,6 +33,25 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 - Cierres diarios, reportes quincenales y mensuales.
 - Compras, ajustes, mermas, conteos, horas y planilla.
 
+## Modelo de artículos y productos
+
+- **Artículo físico:** lo que se compra, almacena y cuenta. Define una
+  presentación de compra y una unidad base de inventario.
+- **Producto de venta:** lo que aparece en el POS. Su composición indica qué
+  artículos y cantidades se descuentan por cada unidad vendida.
+
+Ejemplos:
+
+- una caja de 24 cervezas se registra como presentación `Caja de 24`, contenido
+  `24` y unidad base `unidad`; recibir 2 cajas agrega 48 unidades;
+- una botella de licor de 750 ml se registra como presentación
+  `Botella de 750 ml`, contenido `750` y unidad base `ml`; un producto que use
+  50 ml descuenta exactamente esa cantidad en cada venta.
+
+Los costos de compra se introducen por caja, paquete o botella. El sistema los
+convierte automáticamente a costo por unidad base para valorar existencias y
+calcular el costo de las recetas.
+
 ## 1. Comprobar PHP
 
 En **cPanel > MultiPHP Manager**, confirme que `admin.noxpanama.com` use PHP 7.4.32 o una versión posterior.

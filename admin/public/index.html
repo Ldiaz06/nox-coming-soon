@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260721-2">
+  <link rel="stylesheet" href="/styles.css?v=20260724-1">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -97,24 +97,39 @@
       </section>
 
       <section id="section-inventory" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">EXISTENCIAS</p><h2>Inventario</h2></div><div class="heading-actions"><button id="show-purchase" class="button button--ghost">Registrar compra</button><button id="show-new-product" class="button button--ghost">Nuevo producto</button><button id="show-new-item" class="button button--primary">Nuevo artículo</button></div></div>
+        <div class="section-heading"><div><p class="eyebrow">EXISTENCIAS</p><h2>Inventario y productos</h2></div><div class="heading-actions"><button id="show-purchase" class="button button--ghost">Registrar compra</button><button id="show-new-product" class="button button--ghost">Crear producto de venta</button><button id="show-new-item" class="button button--primary">Crear artículo físico</button></div></div>
+        <div class="inventory-concepts" aria-label="Diferencia entre artículos y productos">
+          <article class="concept-card"><span class="concept-number">01</span><div><h3>Artículos físicos</h3><p>Lo que se compra, cuenta y almacena: cervezas, botellas, mezcladores o ingredientes. Cada artículo define su presentación y su unidad de control.</p></div></article>
+          <article class="concept-card"><span class="concept-number">02</span><div><h3>Productos de venta</h3><p>Lo que aparece en el POS. Cada venta descuenta automáticamente las cantidades indicadas en su composición de artículos.</p></div></article>
+        </div>
         <form id="new-item-form" class="panel inline-form" hidden>
-          <label>SKU<input name="sku" required></label><label>Nombre<input name="name" required></label><label>Categoría<input name="category" required></label>
-          <label>Unidad<select name="unit"><option value="unit">Unidad</option><option value="bottle">Botella</option><option value="ml">ml</option><option value="liter">Litro</option><option value="gram">Gramo</option><option value="kg">Kg</option><option value="portion">Porción</option></select></label>
-          <label>Existencia inicial<input name="currentStock" type="number" min="0" step="0.001" value="0"></label><label>Mínimo<input name="minimumStock" type="number" min="0" step="0.001" value="0"></label><label>Costo promedio<input name="averageCost" type="number" min="0" step="0.0001" value="0"></label>
-          <div class="form-actions"><button class="button button--primary" type="submit">Guardar</button><button class="button button--ghost" type="button" data-cancel-form="new-item-form">Cancelar</button></div>
+          <div class="form-intro wide-field"><p class="eyebrow">ARTÍCULO FÍSICO</p><h3>Definir presentación y unidad de inventario</h3><p>Ejemplo: una caja contiene 24 cervezas; una botella contiene 750 ml. El inventario siempre se controla en la unidad base.</p></div>
+          <label>SKU del artículo<input name="sku" required></label><label>Nombre del artículo<input name="name" required placeholder="Balboa 355 ml"></label><label>Categoría<input name="category" required placeholder="Cervezas"></label>
+          <label>Presentación habitual<select id="item-package-preset" name="packagePreset"><option value="unit">Unidad individual</option><option value="six">Six-pack de 6</option><option value="half-case">Media caja de 12</option><option value="case-24">Caja de 24</option><option value="bottle-750">Botella de 750 ml</option><option value="bottle-1000">Botella de 1 L</option><option value="custom">Personalizada</option></select></label>
+          <label>Nombre de la presentación<input name="packageName" maxlength="80" value="Unidad" required></label>
+          <label>Unidad de control<select name="unit"><option value="unit">Unidad / pieza</option><option value="ml">Mililitro (ml)</option><option value="gram">Gramo (g)</option><option value="portion">Porción</option><option value="bottle">Botella completa</option><option value="liter">Litro</option><option value="kg">Kilogramo</option></select></label>
+          <label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" value="1" required><small class="field-hint">Cantidad de unidades, ml o gramos que contiene.</small></label>
+          <label>Presentaciones iniciales<input name="initialPackages" type="number" min="0" step="0.001" value="0"></label>
+          <label>Costo por presentación<input name="packageCost" type="number" min="0" step="0.0001" value="0"></label>
+          <label>Stock mínimo en unidad base<input name="minimumStock" type="number" min="0" step="0.001" value="0"></label>
+          <p id="item-stock-preview" class="conversion-preview wide-field" role="status">0 unidades en inventario.</p>
+          <div class="form-actions wide-field"><button class="button button--primary" type="submit">Guardar artículo físico</button><button class="button button--ghost" type="button" data-cancel-form="new-item-form">Cancelar</button></div>
         </form>
         <form id="new-product-form" class="panel inline-form" hidden>
-          <label>SKU<input name="sku" required></label><label>Producto para POS<input name="name" required></label><label>Categoría<input name="category" required></label><label>Precio de venta<input name="salePrice" type="number" min="0" step="0.01" required></label><label>Impuesto (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="0"></label>
-          <div class="wide-field"><div class="recipe-heading"><span>Receta de inventario</span><button id="add-recipe-row" type="button" class="text-button">+ Ingrediente</button></div><div id="recipe-rows" class="recipe-rows"></div></div>
-          <div class="form-actions"><button class="button button--primary" type="submit">Guardar producto</button><button class="button button--ghost" type="button" data-cancel-form="new-product-form">Cancelar</button></div>
+          <div class="form-intro wide-field"><p class="eyebrow">PRODUCTO DE VENTA</p><h3>Definir composición para el POS</h3><p>Indique cuánto consume una venta. Una cerveza descuenta 1 unidad; un trago puede descontar 50 ml de licor y 1 unidad de mezclador.</p></div>
+          <label>SKU del producto<input name="sku" required></label><label>Nombre en el POS<input name="name" required></label><label>Categoría<input name="category" required></label><label>Código de barras<input name="barcode" maxlength="120"></label><label>Precio de venta<input name="salePrice" type="number" min="0" step="0.01" required></label><label>Impuesto (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="0"></label>
+          <div class="wide-field"><div class="recipe-heading"><div><span>Artículos que componen este producto</span><small>Cantidades descontadas por cada unidad vendida.</small></div><button id="add-recipe-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="recipe-rows" class="recipe-rows"></div></div>
+          <div class="form-actions wide-field"><button class="button button--primary" type="submit">Guardar producto de venta</button><button class="button button--ghost" type="button" data-cancel-form="new-product-form">Cancelar</button></div>
         </form>
         <form id="purchase-form" class="panel inline-form" hidden>
+          <div class="form-intro wide-field"><p class="eyebrow">RECEPCIÓN</p><h3>Registrar compra por presentación</h3><p>Introduzca cuántas cajas, paquetes o botellas recibió y el costo de cada presentación. La conversión a unidades de inventario es automática.</p></div>
+          <datalist id="purchase-package-names"><option value="Unidad"></option><option value="Six-pack de 6"></option><option value="Media caja de 12"></option><option value="Caja de 24"></option><option value="Botella de 750 ml"></option><option value="Botella de 1 L"></option></datalist>
           <label>Factura<input name="invoiceNumber" maxlength="100"></label><label>Fecha y hora<input name="purchasedAt" type="datetime-local" required></label><label class="wide-field">Notas<input name="notes" maxlength="500"></label>
-          <div class="wide-field"><div class="recipe-heading"><span>Artículos recibidos</span><button id="add-purchase-row" type="button" class="text-button">+ Artículo</button></div><div id="purchase-rows" class="recipe-rows"></div></div>
-          <div class="form-actions"><button class="button button--primary" type="submit">Recibir compra</button><button class="button button--ghost" type="button" data-cancel-form="purchase-form">Cancelar</button></div>
+          <div class="wide-field"><div class="recipe-heading"><div><span>Artículos recibidos</span><small>La presentación configurada se aplica automáticamente.</small></div><button id="add-purchase-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="purchase-rows" class="recipe-rows"></div></div>
+          <div class="form-actions wide-field"><button class="button button--primary" type="submit">Recibir compra</button><button class="button button--ghost" type="button" data-cancel-form="purchase-form">Cancelar</button></div>
         </form>
-        <div class="panel table-panel"><div class="table-tools"><input id="inventory-search" type="search" placeholder="Buscar inventario"><span id="inventory-summary"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Existencia</th><th>Mínimo</th><th>Costo</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-table"></tbody></table></div></div>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">ARTÍCULOS FÍSICOS</p><h3>Existencias almacenadas</h3></div></div><div class="table-tools"><input id="inventory-search" type="search" placeholder="Buscar artículo físico"><span id="inventory-summary"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Presentación de compra</th><th>Existencia base</th><th>Mínimo</th><th>Costos</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-table"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCTOS DE VENTA</p><h3>Catálogo y composición del POS</h3></div><span id="products-summary" class="panel-note"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Artículos descontados por venta</th><th>Estado</th></tr></thead><tbody id="inventory-products-table"></tbody></table></div></article>
       </section>
 
       <section id="section-cash" class="page-section" hidden>
@@ -170,6 +185,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260721-2" defer></script>
+  <script src="/app.js?v=20260724-1" defer></script>
 </body>
 </html>

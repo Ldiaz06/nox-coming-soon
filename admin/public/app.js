@@ -4,6 +4,7 @@ const state = {
   section: "dashboard",
   products: [],
   inventory: [],
+  inventoryProducts: [],
   users: [],
   cashSessions: [],
   terminals: [],
@@ -18,6 +19,8 @@ const dateTime = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeSty
 const dateOnly = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeZone: "America/Panama" });
 const roleNames = { admin: "Administrador", supervisor: "Supervisor", cashier: "Cajero" };
 const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", inventory: "Inventario", cash: "Cajas", reports: "Reportes", workforce: "Personal", payroll: "Planilla", users: "Usuarios" };
+const unitNames = { unit: "unidad", bottle: "botella", ml: "ml", liter: "litro", gram: "g", kg: "kg", portion: "porción" };
+const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 function escapeHtml(value) {
@@ -259,38 +262,142 @@ async function completeSale() {
 }
 
 async function loadInventory() {
-  const { items } = await api("/api/inventory/items");
+  const [{ items }, { products }] = await Promise.all([
+    api("/api/inventory/items"),
+    api("/api/inventory/products")
+  ]);
   state.inventory = items;
+  state.inventoryProducts = products;
   renderInventory();
+  $$(".recipe-row", $("#recipe-rows")).forEach((row) => updateInventoryRow(row, "recipe"));
+  $$(".recipe-row", $("#purchase-rows")).forEach((row) => updateInventoryRow(row, "purchase"));
 }
 
 function renderInventory() {
   const query = $("#inventory-search").value.trim().toLowerCase();
   const items = state.inventory.filter((item) => `${item.sku} ${item.name} ${item.category}`.toLowerCase().includes(query));
-  $("#inventory-summary").textContent = `${items.length} artículos · ${state.inventory.filter((item) => item.lowStock).length} en mínimo`;
-  $("#inventory-table").innerHTML = items.map((item) => `<tr><td>${escapeHtml(item.sku)}</td><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.category)}</td><td>${Number(item.currentStock).toFixed(3)} ${escapeHtml(item.unit)}</td><td>${Number(item.minimumStock).toFixed(3)}</td><td>${money.format(item.averageCost)}</td><td><span class="badge ${item.lowStock ? "badge--danger" : "badge--success"}">${item.lowStock ? "Bajo" : "Normal"}</span></td><td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button></td></tr>`).join("");
+  $("#inventory-summary").textContent = `${items.length} artículos · ${state.inventory.filter((item) => Number(item.lowStock) === 1).length} en mínimo`;
+  $("#inventory-table").innerHTML = items.map((item) => {
+    const lowStock = Number(item.lowStock) === 1;
+    return `<tr>
+      <td>${escapeHtml(item.sku)}</td>
+      <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)}</small></td>
+      <td><strong>${escapeHtml(item.packageName)}</strong><small>1 ${escapeHtml(item.packageName)} = ${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
+      <td><strong>${quantityNumber.format(item.currentStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>${quantityNumber.format(item.packageStock)} presentaciones equivalentes</small></td>
+      <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</td>
+      <td><strong>${money.format(item.packageCost)} / presentación</strong><small>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</small></td>
+      <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
+      <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button></td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos físicos registrados.</td></tr>';
+
+  $("#products-summary").textContent = `${state.inventoryProducts.length} productos`;
+  $("#inventory-products-table").innerHTML = state.inventoryProducts.map((product) => {
+    const recipe = product.recipe.length
+      ? `<ul class="recipe-summary">${product.recipe.map((component) => `<li><strong>${quantityNumber.format(component.quantity)} ${escapeHtml(unitNames[component.unit] || component.unit)}</strong> de ${escapeHtml(component.name)}</li>`).join("")}</ul>`
+      : '<span class="badge badge--danger">Sin composición</span>';
+    const active = Number(product.active) === 1;
+    return `<tr><td>${escapeHtml(product.sku)}</td><td><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}</td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td></tr>`;
+  }).join("") || '<tr><td colspan="6" class="empty-state">No hay productos de venta registrados.</td></tr>';
 }
 
 function inventoryOptions() {
-  return state.inventory.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${escapeHtml(item.sku)}</option>`).join("");
+  return state.inventory.length
+    ? state.inventory.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${escapeHtml(item.packageName)} de ${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)}</option>`).join("")
+    : '<option value="">Primero cree un artículo físico</option>';
+}
+
+function selectedInventoryItem(row) {
+  return state.inventory.find((item) => item.id === Number($("[name=itemId]", row)?.value));
+}
+
+function updateInventoryRow(row, kind, resetPresentation = false) {
+  const item = selectedInventoryItem(row);
+  const hint = $("[data-conversion-hint]", row);
+  if (!hint) return;
+  if (!item) {
+    hint.textContent = "Seleccione un artículo físico.";
+    return;
+  }
+  const unit = unitNames[item.unit] || item.unit;
+  if (kind === "recipe") {
+    hint.textContent = `Se descontará en ${unit}. Ejemplo: 1 ${unit} o 50 ml por cada venta.`;
+    return;
+  }
+  if (resetPresentation) {
+    $("[name=packageName]", row).value = item.packageName;
+    $("[name=unitsPerPackage]", row).value = item.unitsPerPackage;
+  }
+  const packageName = $("[name=packageName]", row).value || item.packageName;
+  const unitsPerPackage = Number($("[name=unitsPerPackage]", row).value || item.unitsPerPackage);
+  hint.textContent = `1 ${packageName} agrega ${quantityNumber.format(unitsPerPackage)} ${unit} al inventario.`;
 }
 
 function addRecipeRow(kind) {
   const container = kind === "recipe" ? $("#recipe-rows") : $("#purchase-rows");
   const row = document.createElement("div");
-  row.className = "recipe-row";
+  row.className = `recipe-row recipe-row--${kind}`;
   row.innerHTML = kind === "recipe"
-    ? `<label>Artículo<select name="itemId" required>${inventoryOptions()}</select></label><label>Cantidad descontada<input name="quantity" type="number" min="0.0001" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`
-    : `<label>Artículo<select name="itemId" required>${inventoryOptions()}</select></label><label>Cantidad<input name="quantity" type="number" min="0.0001" step="0.0001" required></label><label>Costo unitario<input name="unitCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
+    ? `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select></label><label>Cantidad por cada venta<input name="quantity" type="number" min="0.0001" step="0.0001" required><small class="field-hint" data-conversion-hint></small></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`
+    : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<input name="packageName" list="purchase-package-names" maxlength="80" required></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="0.0001" step="0.001" required></label><label>Costo por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
   container.append(row);
+  updateInventoryRow(row, kind, true);
 }
 
 function collectRows(containerSelector) {
   return $$(".recipe-row", $(containerSelector)).map((row) => ({
     itemId: Number($("[name=itemId]", row).value),
-    quantity: Number($("[name=quantity]", row).value),
-    ...($("[name=unitCost]", row) ? { unitCost: Number($("[name=unitCost]", row).value) } : {})
+    ...($("[name=quantity]", row) ? { quantity: Number($("[name=quantity]", row).value) } : {}),
+    ...($("[name=packageName]", row) ? { packageName: $("[name=packageName]", row).value } : {}),
+    ...($("[name=unitsPerPackage]", row) ? { unitsPerPackage: Number($("[name=unitsPerPackage]", row).value) } : {}),
+    ...($("[name=packageQuantity]", row) ? { packageQuantity: Number($("[name=packageQuantity]", row).value) } : {}),
+    ...($("[name=packageCost]", row) ? { packageCost: Number($("[name=packageCost]", row).value) } : {})
   }));
+}
+
+const itemPackagePresets = {
+  unit: { packageName: "Unidad", unit: "unit", unitsPerPackage: 1 },
+  six: { packageName: "Six-pack de 6", unit: "unit", unitsPerPackage: 6 },
+  "half-case": { packageName: "Media caja de 12", unit: "unit", unitsPerPackage: 12 },
+  "case-24": { packageName: "Caja de 24", unit: "unit", unitsPerPackage: 24 },
+  "bottle-750": { packageName: "Botella de 750 ml", unit: "ml", unitsPerPackage: 750 },
+  "bottle-1000": { packageName: "Botella de 1 L", unit: "ml", unitsPerPackage: 1000 }
+};
+const purchasePackageSizes = {
+  "Unidad": 1,
+  "Six-pack de 6": 6,
+  "Media caja de 12": 12,
+  "Caja de 24": 24,
+  "Botella de 750 ml": 750,
+  "Botella de 1 L": 1000
+};
+
+function updateItemStockPreview() {
+  const form = $("#new-item-form");
+  const packages = Number(form.elements.initialPackages.value || 0);
+  const unitsPerPackage = Number(form.elements.unitsPerPackage.value || 0);
+  const packageCost = Number(form.elements.packageCost.value || 0);
+  const unit = unitNames[form.elements.unit.value] || form.elements.unit.value;
+  const stock = packages * unitsPerPackage;
+  const unitCost = unitsPerPackage > 0 ? packageCost / unitsPerPackage : 0;
+  $("#item-stock-preview").textContent = `${quantityNumber.format(packages)} presentaciones × ${quantityNumber.format(unitsPerPackage)} ${unit} = ${quantityNumber.format(stock)} ${unit} en inventario · costo ${money.format(unitCost)} por ${unit}.`;
+}
+
+function applyItemPackagePreset() {
+  const form = $("#new-item-form");
+  const preset = itemPackagePresets[form.elements.packagePreset.value];
+  if (preset) {
+    form.elements.packageName.value = preset.packageName;
+    form.elements.unit.value = preset.unit;
+    form.elements.unitsPerPackage.value = preset.unitsPerPackage;
+  }
+  updateItemStockPreview();
+}
+
+function openInventoryForm(id) {
+  ["new-item-form", "new-product-form", "purchase-form"].forEach((formId) => {
+    document.getElementById(formId).hidden = formId !== id;
+  });
 }
 
 async function loadCash() {
@@ -426,16 +533,28 @@ $("#payment-methods").addEventListener("click", (event) => {
   if (method === "cash") $("#payment-reference").value = "";
 });
 
-$("#show-new-item").addEventListener("click", () => { $("#new-item-form").hidden = false; });
-$("#show-new-product").addEventListener("click", () => { $("#new-product-form").hidden = false; $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); });
-$("#show-purchase").addEventListener("click", () => { const form = $("#purchase-form"); form.hidden = false; $("#purchase-rows").replaceChildren(); addRecipeRow("purchase"); const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); form.elements.purchasedAt.value = now; });
+$("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); openInventoryForm("new-item-form"); applyItemPackagePreset(); });
+$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); });
+$("#show-purchase").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#purchase-form"); openInventoryForm("purchase-form"); $("#purchase-rows").replaceChildren(); addRecipeRow("purchase"); const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); form.elements.purchasedAt.value = now; });
 $("#add-recipe-row").addEventListener("click", () => addRecipeRow("recipe"));
 $("#add-purchase-row").addEventListener("click", () => addRecipeRow("purchase"));
 $("#recipe-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#recipe-rows")).length > 1) event.target.closest(".recipe-row").remove(); });
 $("#purchase-rows").addEventListener("click", (event) => { if (event.target.closest("[data-remove-row]") && $$(".recipe-row", $("#purchase-rows")).length > 1) event.target.closest(".recipe-row").remove(); });
+$("#recipe-rows").addEventListener("change", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "recipe"); });
+$("#purchase-rows").addEventListener("change", (event) => { const row = event.target.closest(".recipe-row"); if (row) updateInventoryRow(row, "purchase", event.target.name === "itemId"); });
+$("#purchase-rows").addEventListener("input", (event) => {
+  const row = event.target.closest(".recipe-row");
+  if (!row) return;
+  if (event.target.name === "packageName" && purchasePackageSizes[event.target.value]) {
+    $("[name=unitsPerPackage]", row).value = purchasePackageSizes[event.target.value];
+  }
+  updateInventoryRow(row, "purchase");
+});
+$("#item-package-preset").addEventListener("change", applyItemPackagePreset);
+$("#new-item-form").addEventListener("input", updateItemStockPreview);
 $$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); }));
-$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ ...values, currentStock: Number(values.currentStock), minimumStock: Number(values.minimumStock), averageCost: Number(values.averageCost) }) }); form.reset(); form.hidden = true; toast("Artículo creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
-$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, salePrice: Number(values.salePrice), taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); form.reset(); form.hidden = true; toast("Producto agregado al POS."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, unit: values.unit, packageName: values.packageName, unitsPerPackage: Number(values.unitsPerPackage), initialPackages: Number(values.initialPackages || 0), packageCost: Number(values.packageCost || 0), minimumStock: Number(values.minimumStock || 0) }) }); form.reset(); form.hidden = true; applyItemPackagePreset(); toast("Artículo físico creado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: values.category, barcode: values.barcode || null, salePrice: Number(values.salePrice), taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); form.reset(); form.hidden = true; toast("Producto de venta agregado al POS."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#purchase-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/purchases", { method: "POST", body: JSON.stringify({ invoiceNumber: values.invoiceNumber || null, purchasedAt: new Date(values.purchasedAt).toISOString(), notes: values.notes, items: collectRows("#purchase-rows") }) }); form.reset(); form.hidden = true; toast("Compra recibida e inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#inventory-search").addEventListener("input", renderInventory);
 $("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventory.find((row) => row.id === Number(button.dataset.adjustId)); $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${item.unit}`; $("#adjust-dialog").showModal(); });

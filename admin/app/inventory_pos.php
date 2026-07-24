@@ -5,11 +5,57 @@ function inventory_items(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
-        'SELECT id, sku, name, category, unit, current_stock AS currentStock, minimum_stock AS minimumStock,
-                average_cost AS averageCost, active, current_stock <= minimum_stock AS lowStock
+        'SELECT id, sku, name, category, unit, package_name AS packageName,
+                units_per_package AS unitsPerPackage, current_stock AS currentStock,
+                minimum_stock AS minimumStock, average_cost AS averageCost,
+                current_stock / NULLIF(units_per_package, 0) AS packageStock,
+                average_cost * units_per_package AS packageCost,
+                active, current_stock <= minimum_stock AS lowStock
          FROM inventory_items WHERE active = TRUE ORDER BY category, name'
     )->fetchAll();
     json_response(['items' => $rows]);
+}
+
+function inventory_products(array $params = [])
+{
+    require_roles(['admin', 'supervisor']);
+    $rows = db()->query(
+        'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.sale_price AS salePrice,
+                p.tax_rate AS taxRate, p.active, r.inventory_item_id AS itemId,
+                r.quantity, i.sku AS itemSku, i.name AS itemName, i.unit
+         FROM products p
+         LEFT JOIN product_recipes r ON r.product_id = p.id
+         LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
+         ORDER BY p.category, p.name, i.name'
+    )->fetchAll();
+
+    $products = [];
+    foreach ($rows as $row) {
+        $id = (int) $row['id'];
+        if (!isset($products[$id])) {
+            $products[$id] = [
+                'id' => $id,
+                'sku' => $row['sku'],
+                'barcode' => $row['barcode'],
+                'name' => $row['name'],
+                'category' => $row['category'],
+                'salePrice' => $row['salePrice'],
+                'taxRate' => $row['taxRate'],
+                'active' => $row['active'],
+                'recipe' => [],
+            ];
+        }
+        if ($row['itemId'] !== null) {
+            $products[$id]['recipe'][] = [
+                'itemId' => (int) $row['itemId'],
+                'sku' => $row['itemSku'],
+                'name' => $row['itemName'],
+                'quantity' => $row['quantity'],
+                'unit' => $row['unit'],
+            ];
+        }
+    }
+    json_response(['products' => array_values($products)]);
 }
 
 function inventory_item_create(array $params = [])
@@ -21,17 +67,26 @@ function inventory_item_create(array $params = [])
     $name = value_string($body, 'name', 2, 180) ?? '';
     $category = value_string($body, 'category', 2, 100) ?? '';
     $unit = require_choice($body['unit'] ?? '', ['unit', 'bottle', 'ml', 'liter', 'gram', 'kg', 'portion'], 'unit');
-    $stock = value_number($body, 'currentStock', 0);
+    $packageName = value_string($body, 'packageName', 2, 80) ?? '';
+    $unitsPerPackage = value_number($body, 'unitsPerPackage', 0.0001);
+    $initialPackages = isset($body['initialPackages'])
+        ? value_number($body, 'initialPackages', 0)
+        : value_number($body, 'currentStock', 0) / $unitsPerPackage;
+    $packageCost = isset($body['packageCost'])
+        ? value_number($body, 'packageCost', 0)
+        : value_number($body, 'averageCost', 0) * $unitsPerPackage;
+    $stock = $initialPackages * $unitsPerPackage;
     $minimum = value_number($body, 'minimumStock', 0);
-    $cost = value_number($body, 'averageCost', 0);
+    $cost = $packageCost / $unitsPerPackage;
 
     try {
-        $id = transaction(function (PDO $pdo) use ($user, $sku, $name, $category, $unit, $stock, $minimum, $cost): int {
+        $id = transaction(function (PDO $pdo) use ($user, $sku, $name, $category, $unit, $packageName, $unitsPerPackage, $initialPackages, $packageCost, $stock, $minimum, $cost): int {
             $statement = $pdo->prepare(
-                'INSERT INTO inventory_items (sku, name, category, unit, current_stock, minimum_stock, average_cost)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO inventory_items
+                   (sku, name, category, unit, package_name, units_per_package, current_stock, minimum_stock, average_cost)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $statement->execute([$sku, $name, $category, $unit, $stock, $minimum, $cost]);
+            $statement->execute([$sku, $name, $category, $unit, $packageName, $unitsPerPackage, $stock, $minimum, $cost]);
             $id = (int) $pdo->lastInsertId();
             if ($stock > 0) {
                 $movement = $pdo->prepare(
@@ -41,7 +96,10 @@ function inventory_item_create(array $params = [])
                 );
                 $movement->execute([$id, $stock, $cost, $user['id']]);
             }
-            audit_log($pdo, $user, 'create', 'inventory_item', $id, null, compact('sku', 'name', 'category', 'unit', 'stock', 'minimum', 'cost'));
+            audit_log($pdo, $user, 'create', 'inventory_item', $id, null, compact(
+                'sku', 'name', 'category', 'unit', 'packageName', 'unitsPerPackage',
+                'initialPackages', 'packageCost', 'stock', 'minimum', 'cost'
+            ));
             return $id;
         });
     } catch (PDOException $error) {
@@ -171,35 +229,58 @@ function inventory_purchase_create(array $params = [])
         if (!is_array($line)) throw new ApiError('La compra contiene una línea inválida.');
         $items[] = [
             'itemId' => value_id($line, 'itemId'),
-            'quantity' => value_number($line, 'quantity', 0.0001),
-            'unitCost' => value_number($line, 'unitCost', 0),
+            'packageName' => value_string($line, 'packageName', 2, 80, false),
+            'unitsPerPackage' => isset($line['unitsPerPackage'])
+                ? value_number($line, 'unitsPerPackage', 0.0001)
+                : null,
+            'packageQuantity' => isset($line['packageQuantity'])
+                ? value_number($line, 'packageQuantity', 0.0001)
+                : value_number($line, 'quantity', 0.0001),
+            'packageCost' => isset($line['packageCost'])
+                ? value_number($line, 'packageCost', 0)
+                : value_number($line, 'unitCost', 0),
         ];
     }
 
     $id = transaction(function (PDO $pdo) use ($user, $supplierId, $invoice, $notes, $purchasedDate, $items): int {
-        $total = array_reduce($items, fn (float $sum, array $item): float => $sum + $item['quantity'] * $item['unitCost'], 0.0);
+        $total = array_reduce($items, fn (float $sum, array $item): float => $sum + $item['packageQuantity'] * $item['packageCost'], 0.0);
         $purchase = $pdo->prepare(
             'INSERT INTO purchases (supplier_id, invoice_number, purchased_at, total, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)'
         );
         $purchase->execute([$supplierId, $invoice, $purchasedDate->format('Y-m-d H:i:s'), money_round($total), $notes, $user['id']]);
         $id = (int) $pdo->lastInsertId();
         foreach ($items as $line) {
-            $select = $pdo->prepare('SELECT current_stock, average_cost FROM inventory_items WHERE id = ? FOR UPDATE');
+            $select = $pdo->prepare(
+                'SELECT current_stock, average_cost, unit, package_name, units_per_package
+                 FROM inventory_items WHERE id = ? AND active = TRUE FOR UPDATE'
+            );
             $select->execute([$line['itemId']]);
             $item = $select->fetch();
             if (!$item) throw new ApiError('Artículo de compra inválido.');
+            $packageName = $line['packageName'] ?: $item['package_name'];
+            $unitsPerPackage = $line['unitsPerPackage'] ?: (float) $item['units_per_package'];
+            if ($unitsPerPackage <= 0) throw new ApiError('La presentación del artículo no es válida.', 409);
+            $quantity = $line['packageQuantity'] * $unitsPerPackage;
+            $unitCost = $line['packageCost'] / $unitsPerPackage;
             $oldValue = (float) $item['current_stock'] * (float) $item['average_cost'];
-            $newStock = (float) $item['current_stock'] + $line['quantity'];
-            $newCost = $newStock > 0 ? ($oldValue + $line['quantity'] * $line['unitCost']) / $newStock : $line['unitCost'];
-            $pdo->prepare('INSERT INTO purchase_items (purchase_id, inventory_item_id, quantity, unit_cost) VALUES (?, ?, ?, ?)')
-                ->execute([$id, $line['itemId'], $line['quantity'], $line['unitCost']]);
+            $newStock = (float) $item['current_stock'] + $quantity;
+            $newCost = $newStock > 0 ? ($oldValue + $quantity * $unitCost) / $newStock : $unitCost;
+            $pdo->prepare(
+                'INSERT INTO purchase_items
+                   (purchase_id, inventory_item_id, package_name, package_quantity,
+                    units_per_package, package_cost, quantity, unit_cost)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $id, $line['itemId'], $packageName, $line['packageQuantity'],
+                $unitsPerPackage, $line['packageCost'], $quantity, $unitCost,
+            ]);
             $pdo->prepare('UPDATE inventory_items SET current_stock = ?, average_cost = ? WHERE id = ?')
                 ->execute([$newStock, $newCost, $line['itemId']]);
             $pdo->prepare(
                 "INSERT INTO inventory_movements
                    (inventory_item_id, movement_type, quantity, unit_cost, reference_type, reference_id, created_by)
                  VALUES (?, 'purchase', ?, ?, 'purchase', ?, ?)"
-            )->execute([$line['itemId'], $line['quantity'], $line['unitCost'], $id, $user['id']]);
+            )->execute([$line['itemId'], $quantity, $unitCost, $id, $user['id']]);
         }
         audit_log($pdo, $user, 'receive', 'purchase', $id, null, ['total' => money_round($total), 'items' => count($items)]);
         return $id;
