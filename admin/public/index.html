@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260724-5">
+  <link rel="stylesheet" href="/styles.css?v=20260724-6">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -81,6 +81,7 @@
           <div class="panel catalog-panel">
             <div class="catalog-tools"><input id="product-search" type="search" aria-label="Buscar producto" placeholder="Buscar producto o código"><select id="product-category" aria-label="Filtrar categoría"><option value="">Todas las categorías</option></select></div>
             <div id="product-grid" class="product-grid"></div>
+            <nav id="pos-pagination" class="pagination" aria-label="Páginas de productos" hidden></nav>
           </div>
           <aside class="panel cart-panel">
             <div class="panel-heading"><h3>Orden actual</h3><button id="clear-cart" class="text-button">Limpiar</button></div>
@@ -116,7 +117,7 @@
           <div class="wide-field"><div class="recipe-heading"><div><span>Artículos recibidos</span><small>Defina la presentación y el precio real de esta compra. La última compra se muestra únicamente como referencia.</small></div><button id="add-purchase-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="purchase-rows" class="recipe-rows"></div></div>
           <div class="form-actions wide-field"><button class="button button--primary" type="submit">Recibir compra</button><button class="button button--ghost" type="button" data-cancel-form="purchase-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">ARTÍCULOS FÍSICOS</p><h3>Existencias almacenadas</h3></div></div><div class="table-tools"><input id="inventory-search" type="search" placeholder="Buscar artículo físico"><span id="inventory-summary"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Última compra / referencia</th><th>Existencia base</th><th>Mínimo</th><th>Costo promedio</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-table"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">ARTÍCULOS FÍSICOS</p><h3>Existencias almacenadas</h3></div></div><div class="table-tools"><input id="inventory-search" type="search" placeholder="Buscar artículo físico"><span id="inventory-summary"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Última compra / referencia</th><th>Existencia base</th><th>Mínimo</th><th>Costo promedio</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-table"></tbody></table></div><nav id="inventory-pagination" class="pagination" aria-label="Páginas de inventario" hidden></nav></article>
       </section>
 
       <section id="section-articles" class="page-section" hidden>
@@ -137,7 +138,7 @@
           <label>Cobertura objetivo (días)<input name="targetStockDays" type="number" min="1" max="730" step="1" value="14" required><small class="field-hint">Inventario deseado después de una compra.</small></label>
           <div class="form-actions wide-field"><button class="button button--primary" type="submit">Guardar artículo físico</button><button class="button button--ghost" type="button" data-cancel-form="new-item-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Artículos configurados</h3></div><span id="articles-summary" class="panel-note"></span></div><div class="table-tools"><input id="articles-search" type="search" placeholder="Buscar artículo"><button class="text-button" type="button" data-go-inventory>Ver existencias y ajustes →</button></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Unidad de control</th><th>Última compra / referencia</th><th>Costo promedio</th></tr></thead><tbody id="articles-table"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Artículos configurados</h3></div><span id="articles-summary" class="panel-note"></span></div><div class="table-tools"><input id="articles-search" type="search" placeholder="Buscar artículo"><button class="text-button" type="button" data-go-inventory>Ver existencias y ajustes →</button></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Unidad de control</th><th>Última compra / referencia</th><th>Costo promedio</th></tr></thead><tbody id="articles-table"></tbody></table></div><nav id="articles-pagination" class="pagination" aria-label="Páginas de artículos" hidden></nav></article>
       </section>
 
       <section id="section-products" class="page-section" hidden>
@@ -158,7 +159,7 @@
           <div id="product-pricing-preview" class="pricing-preview wide-field" role="status" aria-live="polite"></div>
           <div class="form-actions wide-field"><button class="button button--primary" type="submit">Guardar producto de venta</button><button class="button button--ghost" type="button" data-cancel-form="new-product-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCTOS DE VENTA</p><h3>Catálogo y composición del POS</h3></div><span id="products-summary" class="panel-note"></span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Costo</th><th>Sugerido</th><th>Margen</th><th>Artículos descontados por venta</th><th>Estado</th></tr></thead><tbody id="inventory-products-table"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCTOS DE VENTA</p><h3>Catálogo y composición del POS</h3></div><span id="products-summary" class="panel-note"></span></div><div class="table-tools"><input id="products-search" type="search" placeholder="Buscar producto, SKU o código"><span>La búsqueda consulta todo el catálogo</span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Costo</th><th>Sugerido</th><th>Margen</th><th>Artículos descontados por venta</th><th>Estado</th></tr></thead><tbody id="inventory-products-table"></tbody></table></div><nav id="products-pagination" class="pagination" aria-label="Páginas de productos" hidden></nav></article>
       </section>
 
       <section id="section-insights" class="page-section" hidden>
@@ -252,6 +253,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260724-9" defer></script>
+  <script src="/app.js?v=20260724-10" defer></script>
 </body>
 </html>

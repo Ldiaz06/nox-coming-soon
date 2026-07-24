@@ -10,10 +10,55 @@ function suggested_product_price(float $recipeCost, float $targetMargin): float
     return money_round(ceil(($recipeCost / (1 - $margin)) * 4) / 4);
 }
 
+function catalog_search(): string
+{
+    return trim(substr((string) ($_GET['search'] ?? ''), 0, 120));
+}
+
+function catalog_pagination(int $total, int $defaultPerPage = 20, int $maximumPerPage = 100): array
+{
+    $perPage = max(6, min((int) ($_GET['perPage'] ?? $defaultPerPage), $maximumPerPage));
+    $pages = max(1, (int) ceil($total / $perPage));
+    $page = max(1, min((int) ($_GET['page'] ?? 1), $pages));
+    return [
+        'page' => $page,
+        'perPage' => $perPage,
+        'total' => $total,
+        'pages' => $pages,
+        'from' => $total ? (($page - 1) * $perPage) + 1 : 0,
+        'to' => min($page * $perPage, $total),
+    ];
+}
+
 function inventory_items(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
-    $rows = db()->query(
+    $search = catalog_search();
+    $joins = "FROM inventory_items i
+         LEFT JOIN purchase_items last_line
+           ON last_line.id = (
+             SELECT candidate.id
+             FROM purchase_items candidate
+             JOIN purchases candidate_purchase ON candidate_purchase.id = candidate.purchase_id
+             WHERE candidate.inventory_item_id = i.id
+               AND candidate_purchase.status = 'received'
+             ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
+             LIMIT 1
+           )
+         LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id
+         LEFT JOIN suppliers supplier ON supplier.id = last_purchase.supplier_id";
+    $where = ' WHERE i.active = TRUE';
+    $values = [];
+    if ($search !== '') {
+        $where .= " AND LOWER(CONCAT_WS(' ', i.sku, i.name, i.category, last_line.package_name, supplier.name)) LIKE ?";
+        $values[] = '%' . strtolower($search) . '%';
+    }
+    $countStatement = db()->prepare("SELECT COUNT(*) {$joins}{$where}");
+    $countStatement->execute($values);
+    $pagination = catalog_pagination((int) $countStatement->fetchColumn());
+    $offset = ($pagination['page'] - 1) * $pagination['perPage'];
+
+    $statement = db()->prepare(
         "SELECT i.id, i.sku, i.name, i.category, i.unit,
                 i.lead_time_days AS leadTimeDays,
                 i.safety_stock_days AS safetyStockDays,
@@ -26,6 +71,31 @@ function inventory_items(array $params = [])
                 last_purchase.purchased_at AS referencePurchasedAt,
                 supplier.name AS referenceSupplier,
                 i.active, i.current_stock <= i.minimum_stock AS lowStock
+         {$joins}{$where}
+         ORDER BY i.category, i.name
+         LIMIT ? OFFSET ?"
+    );
+    $position = 1;
+    foreach ($values as $value) {
+        $statement->bindValue($position++, $value, PDO::PARAM_STR);
+    }
+    $statement->bindValue($position++, $pagination['perPage'], PDO::PARAM_INT);
+    $statement->bindValue($position, $offset, PDO::PARAM_INT);
+    $statement->execute();
+    json_response(['items' => $statement->fetchAll(), 'pagination' => $pagination]);
+}
+
+function inventory_item_options(array $params = [])
+{
+    require_roles(['admin', 'supervisor']);
+    $rows = db()->query(
+        'SELECT i.id, i.sku, i.name, i.category, i.unit, i.average_cost AS averageCost,
+                i.lead_time_days AS leadTimeDays, i.safety_stock_days AS safetyStockDays,
+                i.target_stock_days AS targetStockDays,
+                last_line.package_name AS referencePackageName,
+                last_line.units_per_package AS referenceUnitsPerPackage,
+                last_line.package_cost AS referencePackageCost,
+                supplier.name AS referenceSupplier
          FROM inventory_items i
          LEFT JOIN purchase_items last_line
            ON last_line.id = (
@@ -33,14 +103,13 @@ function inventory_items(array $params = [])
              FROM purchase_items candidate
              JOIN purchases candidate_purchase ON candidate_purchase.id = candidate.purchase_id
              WHERE candidate.inventory_item_id = i.id
-               AND candidate_purchase.status = 'received'
+               AND candidate_purchase.status = \'received\'
              ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
              LIMIT 1
            )
          LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id
          LEFT JOIN suppliers supplier ON supplier.id = last_purchase.supplier_id
-         WHERE i.active = TRUE
-         ORDER BY i.category, i.name"
+         WHERE i.active = TRUE ORDER BY i.category, i.name'
     )->fetchAll();
     json_response(['items' => $rows]);
 }
@@ -103,7 +172,34 @@ function inventory_supplier_create(array $params = [])
 function inventory_products(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
-    $rows = db()->query(
+    $search = catalog_search();
+    $where = '';
+    $values = [];
+    if ($search !== '') {
+        $where = " WHERE LOWER(CONCAT_WS(' ', p.sku, p.name, p.category, p.barcode)) LIKE ?";
+        $values[] = '%' . strtolower($search) . '%';
+    }
+    $countStatement = db()->prepare("SELECT COUNT(*) FROM products p{$where}");
+    $countStatement->execute($values);
+    $pagination = catalog_pagination((int) $countStatement->fetchColumn());
+    $offset = ($pagination['page'] - 1) * $pagination['perPage'];
+    $idStatement = db()->prepare(
+        "SELECT p.id FROM products p{$where}
+         ORDER BY p.category, p.name LIMIT ? OFFSET ?"
+    );
+    $position = 1;
+    foreach ($values as $value) {
+        $idStatement->bindValue($position++, $value, PDO::PARAM_STR);
+    }
+    $idStatement->bindValue($position++, $pagination['perPage'], PDO::PARAM_INT);
+    $idStatement->bindValue($position, $offset, PDO::PARAM_INT);
+    $idStatement->execute();
+    $ids = array_map('intval', array_column($idStatement->fetchAll(), 'id'));
+    if (!$ids) {
+        json_response(['products' => [], 'pagination' => $pagination]);
+    }
+
+    $statement = db()->prepare(
         'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.image_path AS imageUrl, p.sale_price AS salePrice,
                 p.tax_rate AS taxRate, p.target_margin AS targetMargin, p.active,
                 r.inventory_item_id AS itemId, r.quantity, i.sku AS itemSku,
@@ -111,8 +207,11 @@ function inventory_products(array $params = [])
          FROM products p
          LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
+         WHERE p.id IN (' . placeholders(count($ids)) . ')
          ORDER BY p.category, p.name, i.name'
-    )->fetchAll();
+    );
+    $statement->execute($ids);
+    $rows = $statement->fetchAll();
 
     $products = [];
     foreach ($rows as $row) {
@@ -159,7 +258,7 @@ function inventory_products(array $params = [])
             : 0.0;
     }
     unset($product);
-    json_response(['products' => array_values($products)]);
+    json_response(['products' => array_values($products), 'pagination' => $pagination]);
 }
 
 function inventory_item_create(array $params = [])
@@ -540,17 +639,48 @@ function inventory_movements(array $params = [])
 function pos_products(array $params = [])
 {
     require_auth();
-    $rows = db()->query(
-        'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.image_path AS imageUrl, p.sale_price AS salePrice, p.tax_rate AS taxRate,
+    $search = catalog_search();
+    $category = trim(substr((string) ($_GET['category'] ?? ''), 0, 100));
+    $base = 'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.image_path AS imageUrl, p.sale_price AS salePrice, p.tax_rate AS taxRate,
                 COALESCE(MIN(i.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
          FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
-         WHERE p.active = TRUE GROUP BY p.id HAVING available >= 1 ORDER BY p.category, p.name'
-    )->fetchAll();
+         WHERE p.active = TRUE GROUP BY p.id';
+    $filters = ['available >= 1'];
+    $values = [];
+    if ($search !== '') {
+        $filters[] = "LOWER(CONCAT_WS(' ', name, sku, barcode)) LIKE ?";
+        $values[] = '%' . strtolower($search) . '%';
+    }
+    if ($category !== '') {
+        $filters[] = 'category = ?';
+        $values[] = $category;
+    }
+    $where = ' WHERE ' . implode(' AND ', $filters);
+    $countStatement = db()->prepare("SELECT COUNT(*) FROM ({$base}) available_products{$where}");
+    $countStatement->execute($values);
+    $pagination = catalog_pagination((int) $countStatement->fetchColumn(), 18, 60);
+    $offset = ($pagination['page'] - 1) * $pagination['perPage'];
+    $statement = db()->prepare(
+        "SELECT * FROM ({$base}) available_products{$where}
+         ORDER BY category, name LIMIT ? OFFSET ?"
+    );
+    $position = 1;
+    foreach ($values as $value) {
+        $statement->bindValue($position++, $value, PDO::PARAM_STR);
+    }
+    $statement->bindValue($position++, $pagination['perPage'], PDO::PARAM_INT);
+    $statement->bindValue($position, $offset, PDO::PARAM_INT);
+    $statement->execute();
+    $rows = $statement->fetchAll();
     foreach ($rows as &$row) {
         $row['available'] = max(0, (int) floor((float) $row['available']));
     }
-    json_response(['products' => $rows]);
+    unset($row);
+    $categories = db()->query(
+        'SELECT DISTINCT category FROM products WHERE active = TRUE ORDER BY category'
+    )->fetchAll(PDO::FETCH_COLUMN);
+    json_response(['products' => $rows, 'categories' => $categories, 'pagination' => $pagination]);
 }
 
 function pos_sale_create(array $params = [])

@@ -3,7 +3,10 @@ const state = {
   csrf: null,
   section: "dashboard",
   products: [],
+  productCache: new Map(),
   inventory: [],
+  inventoryRows: [],
+  articleRows: [],
   inventoryProducts: [],
   suppliers: [],
   users: [],
@@ -11,7 +14,15 @@ const state = {
   terminals: [],
   insights: null,
   cart: new Map(),
-  clockTimer: null
+  clockTimer: null,
+  catalogReady: false,
+  pagination: {
+    pos: { page: 1, perPage: 18, total: 0, pages: 1, from: 0, to: 0 },
+    inventory: { page: 1, perPage: 20, total: 0, pages: 1, from: 0, to: 0 },
+    articles: { page: 1, perPage: 20, total: 0, pages: 1, from: 0, to: 0 },
+    products: { page: 1, perPage: 20, total: 0, pages: 1, from: 0, to: 0 }
+  },
+  requestSequence: { pos: 0, inventory: 0, articles: 0, products: 0 }
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -93,6 +104,58 @@ async function api(path, options = {}) {
 function sortedUnique(values) {
   return [...new Set(values.filter(Boolean).map((value) => String(value).trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+}
+
+function debounce(callback, delay = 260) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => callback(...args), delay);
+  };
+}
+
+function catalogUrl(path, key, search = "", extra = {}) {
+  const pagination = state.pagination[key];
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set("page", pagination.page);
+  url.searchParams.set("perPage", pagination.perPage);
+  if (search.trim()) url.searchParams.set("search", search.trim());
+  Object.entries(extra).forEach(([name, value]) => {
+    if (value) url.searchParams.set(name, value);
+  });
+  return `${url.pathname}${url.search}`;
+}
+
+function renderPagination(containerId, key) {
+  const container = document.getElementById(containerId);
+  const pagination = state.pagination[key];
+  if (!container) return;
+  if (!pagination.total || pagination.pages <= 1) {
+    container.replaceChildren();
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  const start = Math.max(1, pagination.page - 2);
+  const end = Math.min(pagination.pages, pagination.page + 2);
+  const pages = [];
+  for (let page = start; page <= end; page += 1) pages.push(page);
+  container.innerHTML = `
+    <button type="button" data-page="${pagination.page - 1}" ${pagination.page === 1 ? "disabled" : ""} aria-label="Página anterior">←</button>
+    ${start > 1 ? `<button type="button" data-page="1">1</button>${start > 2 ? "<span>…</span>" : ""}` : ""}
+    ${pages.map((page) => `<button type="button" data-page="${page}" ${page === pagination.page ? 'aria-current="page"' : ""}>${page}</button>`).join("")}
+    ${end < pagination.pages ? `${end < pagination.pages - 1 ? "<span>…</span>" : ""}<button type="button" data-page="${pagination.pages}">${pagination.pages}</button>` : ""}
+    <button type="button" data-page="${pagination.page + 1}" ${pagination.page === pagination.pages ? "disabled" : ""} aria-label="Página siguiente">→</button>
+    <small>${pagination.from}–${pagination.to} de ${pagination.total}</small>`;
+}
+
+function bindPagination(containerId, key, loader) {
+  document.getElementById(containerId).addEventListener("click", (event) => {
+    const button = event.target.closest("[data-page]");
+    if (!button || button.disabled) return;
+    state.pagination[key].page = Number(button.dataset.page);
+    loader().catch((error) => toast(error.message, true));
+  });
 }
 
 function populateCategorySelect(select, defaults, existing = []) {
@@ -284,16 +347,31 @@ async function loadDashboard() {
 }
 
 async function loadPos() {
-  const [{ products }, { sessions }] = await Promise.all([api("/api/pos/products"), api("/api/cash/sessions")]);
-  state.products = products;
+  const [{ sessions }] = await Promise.all([api("/api/cash/sessions")]);
   state.cashSessions = sessions;
   const open = ownOpenSession();
   $("#pos-session-label").textContent = open ? `${open.terminalName} · Abierta` : "Caja cerrada";
   $("#pos-session-label").className = `status-pill ${open ? "badge--success" : "badge--danger"}`;
-  const categories = [...new Set(products.map((product) => product.category))];
-  $("#product-category").innerHTML = '<option value="">Todas las categorías</option>' + categories.map((category) => `<option>${escapeHtml(category)}</option>`).join("");
-  renderProducts();
+  await loadPosCatalog();
   renderCart();
+}
+
+async function loadPosCatalog() {
+  const requestId = ++state.requestSequence.pos;
+  const categorySelect = $("#product-category");
+  const selectedCategory = categorySelect.value;
+  const url = catalogUrl("/api/pos/products", "pos", $("#product-search").value, { category: selectedCategory });
+  $("#product-grid").setAttribute("aria-busy", "true");
+  const { products, categories, pagination } = await api(url);
+  if (requestId !== state.requestSequence.pos) return;
+  state.products = products;
+  state.pagination.pos = pagination;
+  products.forEach((product) => state.productCache.set(Number(product.id), product));
+  categorySelect.innerHTML = '<option value="">Todas las categorías</option>' + categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
+  categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : "";
+  renderProducts();
+  renderPagination("pos-pagination", "pos");
+  $("#product-grid").setAttribute("aria-busy", "false");
 }
 
 function productIcon(product) {
@@ -310,10 +388,7 @@ function productIcon(product) {
 }
 
 function renderProducts() {
-  const query = $("#product-search").value.trim().toLowerCase();
-  const category = $("#product-category").value;
-  const products = state.products.filter((product) => Number(product.available) > 0 && (!category || product.category === category) && (!query || `${product.name} ${product.sku} ${product.barcode || ""}`.toLowerCase().includes(query)));
-  $("#product-grid").innerHTML = products.length ? products.map((product) => `
+  $("#product-grid").innerHTML = state.products.length ? state.products.map((product) => `
     <button class="product-card" data-product-id="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}, ${money.format(product.salePrice)}">
       <img class="product-photo" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async">
       <small>${escapeHtml(product.category)} · <span class="product-stock">${Math.floor(product.available)} disponibles</span></small>
@@ -322,7 +397,7 @@ function renderProducts() {
 }
 
 function addToCart(productId) {
-  const product = state.products.find((item) => item.id === productId);
+  const product = state.productCache.get(productId);
   if (!product) return;
   const current = state.cart.get(productId) || 0;
   if (current + 1 > product.available) return toast("No hay más existencias disponibles.", true);
@@ -334,7 +409,8 @@ function cartTotals() {
   let subtotal = 0;
   let tax = 0;
   for (const [productId, quantity] of state.cart) {
-    const product = state.products.find((item) => item.id === productId);
+    const product = state.productCache.get(productId);
+    if (!product) continue;
     subtotal += Number(product.salePrice) * quantity;
     tax += Number(product.salePrice) * quantity * Number(product.taxRate);
   }
@@ -344,7 +420,8 @@ function cartTotals() {
 function renderCart() {
   const lines = [...state.cart.entries()];
   $("#cart-lines").innerHTML = lines.length ? lines.map(([productId, quantity]) => {
-    const product = state.products.find((item) => item.id === productId);
+    const product = state.productCache.get(productId);
+    if (!product) return "";
     return `<div class="cart-line"><div><strong>${escapeHtml(product.name)}</strong><small>${money.format(product.salePrice)}</small></div><div class="quantity-control"><button data-cart-change="-1" data-product-id="${productId}" aria-label="Restar">−</button><span>${quantity}</span><button data-cart-change="1" data-product-id="${productId}" aria-label="Sumar">+</button></div><strong>${money.format(product.salePrice * quantity)}</strong></div>`;
   }).join("") : '<p class="empty-state">Seleccione productos para iniciar la orden.</p>';
   const totals = cartTotals();
@@ -384,27 +461,63 @@ async function completeSale() {
 }
 
 async function loadInventory() {
-  const [{ items }, { products }, { suppliers }] = await Promise.all([
-    api("/api/inventory/items"),
-    api("/api/inventory/products"),
-    api("/api/inventory/suppliers")
-  ]);
-  state.inventory = items;
-  state.inventoryProducts = products;
-  state.suppliers = suppliers;
-  refreshCategoryCatalogs();
-  refreshSupplierSelect($("#purchase-supplier").value);
-  renderInventory();
-  renderArticles();
+  await ensureInventoryContext();
+  if (state.section === "articles") await loadArticlesPage();
+  else if (state.section === "products") await loadProductsPage();
+  else await loadInventoryPage();
   $$(".recipe-row", $("#recipe-rows")).forEach((row) => updateInventoryRow(row, "recipe"));
   $$(".recipe-row", $("#purchase-rows")).forEach((row) => updateInventoryRow(row, "purchase"));
   updateProductPricingPreview();
 }
 
+async function ensureInventoryContext(force = false) {
+  if (state.catalogReady && !force) return;
+  const [{ items }, { suppliers }] = await Promise.all([
+    api("/api/inventory/item-options"),
+    api("/api/inventory/suppliers")
+  ]);
+  state.inventory = items;
+  state.suppliers = suppliers;
+  state.catalogReady = true;
+  refreshCategoryCatalogs();
+  refreshSupplierSelect($("#purchase-supplier").value);
+}
+
+async function loadInventoryPage() {
+  const requestId = ++state.requestSequence.inventory;
+  const { items, pagination } = await api(catalogUrl("/api/inventory/items", "inventory", $("#inventory-search").value));
+  if (requestId !== state.requestSequence.inventory) return;
+  state.inventoryRows = items;
+  state.pagination.inventory = pagination;
+  renderInventory();
+  renderPagination("inventory-pagination", "inventory");
+}
+
+async function loadArticlesPage() {
+  const requestId = ++state.requestSequence.articles;
+  const { items, pagination } = await api(catalogUrl("/api/inventory/items", "articles", $("#articles-search").value));
+  if (requestId !== state.requestSequence.articles) return;
+  state.articleRows = items;
+  state.pagination.articles = pagination;
+  renderArticles();
+  renderPagination("articles-pagination", "articles");
+}
+
+async function loadProductsPage() {
+  const requestId = ++state.requestSequence.products;
+  const { products, pagination } = await api(catalogUrl("/api/inventory/products", "products", $("#products-search").value));
+  if (requestId !== state.requestSequence.products) return;
+  state.inventoryProducts = products;
+  state.pagination.products = pagination;
+  refreshCategoryCatalogs();
+  renderInventoryProducts();
+  renderPagination("products-pagination", "products");
+}
+
 function renderInventory() {
-  const query = $("#inventory-search").value.trim().toLowerCase();
-  const items = state.inventory.filter((item) => `${item.sku} ${item.name} ${item.category}`.toLowerCase().includes(query));
-  $("#inventory-summary").textContent = `${items.length} artículos · ${state.inventory.filter((item) => Number(item.lowStock) === 1).length} en mínimo`;
+  const items = state.inventoryRows;
+  const pagination = state.pagination.inventory;
+  $("#inventory-summary").textContent = `${pagination.total} artículos · mostrando ${pagination.from}–${pagination.to}`;
   $("#inventory-table").innerHTML = items.map((item) => {
     const lowStock = Number(item.lowStock) === 1;
     const reference = item.referencePackageName
@@ -420,9 +533,12 @@ function renderInventory() {
       <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
       <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button></td>
     </tr>`;
-  }).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos físicos registrados.</td></tr>';
+  }).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos físicos con esta búsqueda.</td></tr>';
+}
 
-  $("#products-summary").textContent = `${state.inventoryProducts.length} productos`;
+function renderInventoryProducts() {
+  const pagination = state.pagination.products;
+  $("#products-summary").textContent = `${pagination.total} productos · mostrando ${pagination.from}–${pagination.to}`;
   $("#inventory-products-table").innerHTML = state.inventoryProducts.map((product) => {
     const recipe = product.recipe.length
       ? `<ul class="recipe-summary">${product.recipe.map((component) => `<li><strong>${quantityNumber.format(component.quantity)} ${escapeHtml(unitNames[component.unit] || component.unit)}</strong> de ${escapeHtml(component.name)}</li>`).join("")}</ul>`
@@ -436,9 +552,9 @@ function renderInventory() {
 }
 
 function renderArticles() {
-  const query = $("#articles-search").value.trim().toLowerCase();
-  const items = state.inventory.filter((item) => `${item.sku} ${item.name} ${item.category} ${item.referencePackageName || ""} ${item.referenceSupplier || ""}`.toLowerCase().includes(query));
-  $("#articles-summary").textContent = `${items.length} de ${state.inventory.length} artículos`;
+  const items = state.articleRows;
+  const pagination = state.pagination.articles;
+  $("#articles-summary").textContent = `${pagination.total} artículos · mostrando ${pagination.from}–${pagination.to}`;
   $("#articles-table").innerHTML = items.map((item) => `<tr>
     <td>${escapeHtml(item.sku)}</td>
     <td><strong>${escapeHtml(item.name)}</strong></td>
@@ -749,10 +865,16 @@ $("#exit-pos").addEventListener("click", () => navigate("dashboard"));
 $("#pos-cash-button").addEventListener("click", () => navigate("cash"));
 $$('[data-refresh]').forEach((button) => button.addEventListener("click", () => navigate(button.dataset.refresh)));
 
-$("#product-search").addEventListener("input", renderProducts);
-$("#product-category").addEventListener("change", renderProducts);
+$("#product-search").addEventListener("input", debounce(() => {
+  state.pagination.pos.page = 1;
+  loadPosCatalog().catch((error) => toast(error.message, true));
+}));
+$("#product-category").addEventListener("change", () => {
+  state.pagination.pos.page = 1;
+  loadPosCatalog().catch((error) => toast(error.message, true));
+});
 $("#product-grid").addEventListener("click", (event) => { const button = event.target.closest("[data-product-id]"); if (button) addToCart(Number(button.dataset.productId)); });
-$("#cart-lines").addEventListener("click", (event) => { const button = event.target.closest("[data-cart-change]"); if (!button) return; const id = Number(button.dataset.productId); const product = state.products.find((item) => item.id === id); const next = (state.cart.get(id) || 0) + Number(button.dataset.cartChange); if (next <= 0) state.cart.delete(id); else if (next <= product.available) state.cart.set(id, next); renderCart(); });
+$("#cart-lines").addEventListener("click", (event) => { const button = event.target.closest("[data-cart-change]"); if (!button) return; const id = Number(button.dataset.productId); const product = state.productCache.get(id); if (!product) return; const next = (state.cart.get(id) || 0) + Number(button.dataset.cartChange); if (next <= 0) state.cart.delete(id); else if (next <= product.available) state.cart.set(id, next); renderCart(); });
 $("#clear-cart").addEventListener("click", () => { state.cart.clear(); renderCart(); });
 $("#complete-sale").addEventListener("click", completeSale);
 $("#payment-methods").addEventListener("click", (event) => {
@@ -800,7 +922,7 @@ $("#product-category-input").addEventListener("change", () => toggleNewCategory(
 $("#new-product-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-preview")));
 $("#new-product-form").addEventListener("input", updateProductPricingPreview);
 $$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); if (form.id === "new-product-form") setImagePreview(form.elements.image, $("#product-image-preview")); }));
-$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), unit: values.unit, minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; toast("Artículo físico creado. Registre su existencia mediante una compra."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), unit: values.unit, minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; state.catalogReady = false; state.pagination.articles.page = 1; toast("Artículo físico creado. Registre su existencia mediante una compra."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); const image = form.elements.image.files?.[0]; try { const result = await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), barcode: values.barcode || null, salePrice: Number(values.salePrice), targetMargin: Number(values.targetMargin || 70) / 100, taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); if (image) { try { await uploadProductImage(result.id, image); } catch (uploadError) { toast(`Producto creado con la imagen predeterminada; la foto seleccionada no se guardó: ${uploadError.message}`, true); await loadInventory(); return; } } form.reset(); form.hidden = true; setImagePreview(form.elements.image, $("#product-image-preview")); toast(`Producto creado · precio sugerido ${money.format(result.suggestedPrice)}.`); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#purchase-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -831,18 +953,33 @@ $("#purchase-form").addEventListener("submit", async (event) => {
     });
     form.reset();
     form.hidden = true;
+    state.catalogReady = false;
     toast("Compra recibida e inventario actualizado.");
     await loadInventory();
   } catch (error) { toast(error.message, true); }
 });
-$("#inventory-search").addEventListener("input", renderInventory);
-$("#articles-search").addEventListener("input", renderArticles);
+$("#inventory-search").addEventListener("input", debounce(() => {
+  state.pagination.inventory.page = 1;
+  loadInventoryPage().catch((error) => toast(error.message, true));
+}));
+$("#articles-search").addEventListener("input", debounce(() => {
+  state.pagination.articles.page = 1;
+  loadArticlesPage().catch((error) => toast(error.message, true));
+}));
+$("#products-search").addEventListener("input", debounce(() => {
+  state.pagination.products.page = 1;
+  loadProductsPage().catch((error) => toast(error.message, true));
+}));
+bindPagination("pos-pagination", "pos", loadPosCatalog);
+bindPagination("inventory-pagination", "inventory", loadInventoryPage);
+bindPagination("articles-pagination", "articles", loadArticlesPage);
+bindPagination("products-pagination", "products", loadProductsPage);
 $$("[data-go-inventory]").forEach((button) => button.addEventListener("click", () => navigate("inventory")));
-$("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventory.find((row) => Number(row.id) === Number(button.dataset.adjustId)); $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`; $("#adjust-dialog").showModal(); });
+$("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventoryRows.find((row) => Number(row.id) === Number(button.dataset.adjustId)); if (!item) return; $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`; $("#adjust-dialog").showModal(); });
 $("#inventory-products-table").addEventListener("click", (event) => { const button = event.target.closest("[data-product-image-id]"); if (!button) return; const product = state.inventoryProducts.find((row) => Number(row.id) === Number(button.dataset.productImageId)); if (!product) return; const form = $("#product-image-form"); form.reset(); form.elements.productId.value = product.id; $("#product-image-name").textContent = product.name; setImagePreview(form.elements.image, $("#product-image-dialog-preview")); $("#product-image-dialog").showModal(); });
 $("#product-image-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-dialog-preview")));
 $("#product-image-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#product-image-dialog").close(); const form = event.currentTarget; const image = form.elements.image.files?.[0]; if (!image) return toast("Seleccione una fotografía.", true); try { await uploadProductImage(Number(form.elements.productId.value), image); $("#product-image-dialog").close(); form.reset(); setImagePreview(form.elements.image, $("#product-image-dialog-preview")); toast("Fotografía del producto actualizada."); await loadInventory(); } catch (error) { toast(error.message, true); } });
-$("#adjust-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#adjust-dialog").close(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/movements", { method: "POST", body: JSON.stringify({ itemId: Number(values.itemId), type: values.type, quantity: Number(values.quantity), notes: values.notes }) }); $("#adjust-dialog").close(); form.reset(); toast("Inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#adjust-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#adjust-dialog").close(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/movements", { method: "POST", body: JSON.stringify({ itemId: Number(values.itemId), type: values.type, quantity: Number(values.quantity), notes: values.notes }) }); $("#adjust-dialog").close(); form.reset(); state.catalogReady = false; toast("Inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 
 $("#open-cash-form").addEventListener("submit", async (event) => { event.preventDefault(); const values = formValues(event.currentTarget); const message = $(".form-message", event.currentTarget); try { await api("/api/cash/sessions/open", { method: "POST", body: JSON.stringify({ terminalId: Number(values.terminalId), openingAmount: Number(values.openingAmount) }) }); message.textContent = ""; toast("Caja abierta."); await loadCash(); } catch (error) { message.textContent = error.message; } });
 $("#current-cash-session").addEventListener("click", (event) => { const button = event.target.closest("[data-close-session]"); if (!button) return; $("#close-form [name=sessionId]").value = button.dataset.closeSession; $("#close-dialog").showModal(); });

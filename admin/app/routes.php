@@ -10,6 +10,7 @@ add_route('POST', 'users', 'users_create');
 add_route('PATCH', 'users/{id}', 'users_update');
 
 add_route('GET', 'inventory/items', 'inventory_items');
+add_route('GET', 'inventory/item-options', 'inventory_item_options');
 add_route('POST', 'inventory/items', 'inventory_item_create');
 add_route('GET', 'inventory/suppliers', 'inventory_suppliers');
 add_route('POST', 'inventory/suppliers', 'inventory_supplier_create');

@@ -220,6 +220,16 @@ En **phpMyAdmin**, importe el único instalador:
 /home/noxpana/public_html/admin/db/schema.sql
 ```
 
+Para cargar el catálogo inicial de seis cervezas con fotografía, precio y
+descuento automático de inventario, importe después:
+
+```text
+/home/noxpana/public_html/admin/db/seed_beer_products.sql
+```
+
+El archivo se puede ejecutar más de una vez. Crea únicamente los artículos
+físicos que falten y actualiza los seis productos del POS sin duplicarlos.
+
 `schema.sql` crea `noxpana_noxpa` si no existe, la selecciona y prepara el
 sistema completo. También sirve para actualizar una instalación existente,
 incluidos los campos de margen, tiempo de entrega, cobertura de inventario y
