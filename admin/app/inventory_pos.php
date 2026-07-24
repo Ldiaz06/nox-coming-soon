@@ -629,12 +629,139 @@ function pos_products(array $params = [])
     json_response(['products' => $rows, 'categories' => $categories, 'pagination' => $pagination]);
 }
 
+function pos_tabs(array $params = [])
+{
+    require_auth();
+    $statement = db()->query(
+        "SELECT t.id, t.customer_name AS customerName, t.opened_at AS openedAt, t.updated_at AS updatedAt,
+                u.full_name AS openedBy, COALESCE(SUM(i.quantity), 0) AS itemCount,
+                COALESCE(SUM(i.quantity * i.unit_price * (1 + p.tax_rate)), 0) AS total
+         FROM customer_tabs t
+         JOIN users u ON u.id = t.opened_by
+         LEFT JOIN customer_tab_items i ON i.tab_id = t.id
+         LEFT JOIN products p ON p.id = i.product_id
+         WHERE t.status = 'open'
+         GROUP BY t.id, u.full_name
+         ORDER BY t.updated_at DESC, t.id DESC"
+    );
+    json_response(['tabs' => $statement->fetchAll()]);
+}
+
+function pos_tab_create(array $params = [])
+{
+    require_csrf();
+    $user = require_auth();
+    $body = request_body();
+    $customerName = value_string($body, 'customerName', 2, 120) ?? '';
+    $existing = db()->prepare("SELECT id FROM customer_tabs WHERE status = 'open' AND LOWER(customer_name) = LOWER(?) LIMIT 1");
+    $existing->execute([$customerName]);
+    $existingId = $existing->fetchColumn();
+    if ($existingId) {
+        json_response(['id' => (int) $existingId, 'reused' => true]);
+        return;
+    }
+    $statement = db()->prepare('INSERT INTO customer_tabs (customer_name, opened_by) VALUES (?, ?)');
+    $statement->execute([$customerName, $user['id']]);
+    $id = (int) db()->lastInsertId();
+    audit_log(db(), $user, 'open', 'customer_tab', $id, null, ['customerName' => $customerName]);
+    json_response(['id' => $id, 'reused' => false], 201);
+}
+
+function pos_tab_detail(array $params)
+{
+    require_auth();
+    $tabId = path_id($params);
+    $statement = db()->prepare(
+        "SELECT t.id, t.customer_name AS customerName, t.opened_at AS openedAt,
+                u.full_name AS openedBy
+         FROM customer_tabs t JOIN users u ON u.id = t.opened_by
+         WHERE t.id = ? AND t.status = 'open'"
+    );
+    $statement->execute([$tabId]);
+    $tab = $statement->fetch();
+    if (!$tab) throw new ApiError('La cuenta no está abierta.', 404);
+    $items = db()->prepare(
+        "SELECT p.id, p.sku, p.name, p.category, p.image_path AS imageUrl,
+                i.unit_price AS salePrice, p.tax_rate AS taxRate, i.quantity,
+                MIN(i.added_at) AS addedAt,
+                COALESCE(MIN(stock.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
+         FROM customer_tab_items i
+         JOIN products p ON p.id = i.product_id
+         LEFT JOIN product_recipes r ON r.product_id = p.id
+         LEFT JOIN inventory_items stock ON stock.id = r.inventory_item_id
+         WHERE i.tab_id = ?
+         GROUP BY p.id, i.tab_id, i.unit_price, i.quantity
+         ORDER BY addedAt"
+    );
+    $items->execute([$tabId]);
+    $rows = $items->fetchAll();
+    foreach ($rows as &$row) $row['available'] = max(0, (int) floor((float) $row['available']));
+    unset($row);
+    $tab['items'] = $rows;
+    json_response(['tab' => $tab]);
+}
+
+function pos_tab_item_set(array $params)
+{
+    require_csrf();
+    require_auth();
+    $tabId = path_id($params);
+    $body = request_body();
+    $productId = value_id($body, 'productId');
+    if (!isset($body['quantity']) || !is_numeric($body['quantity'])) throw new ApiError('La cantidad es obligatoria.');
+    $quantity = (float) $body['quantity'];
+    if ($quantity < 0 || $quantity > 100) throw new ApiError('La cantidad no es válida.');
+    transaction(function (PDO $pdo) use ($tabId, $productId, $quantity): void {
+        $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
+        $tab->execute([$tabId]);
+        if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
+        if ($quantity <= 0) {
+            $pdo->prepare('DELETE FROM customer_tab_items WHERE tab_id = ? AND product_id = ?')->execute([$tabId, $productId]);
+        } else {
+            $product = $pdo->prepare(
+                "SELECT p.id, p.sale_price,
+                        COALESCE(MIN(i.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
+                 FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
+                 LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
+                 WHERE p.id = ? AND p.active = TRUE GROUP BY p.id"
+            );
+            $product->execute([$productId]);
+            $row = $product->fetch();
+            if (!$row) throw new ApiError('El producto no está disponible.', 409);
+            if ($quantity > floor((float) $row['available'])) throw new ApiError('No hay suficientes existencias.', 409);
+            $pdo->prepare(
+                'INSERT INTO customer_tab_items (tab_id, product_id, quantity, unit_price)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), updated_at = NOW()'
+            )->execute([$tabId, $productId, $quantity, $row['sale_price']]);
+        }
+        $pdo->prepare('UPDATE customer_tabs SET updated_at = NOW() WHERE id = ?')->execute([$tabId]);
+    });
+    no_content();
+}
+
+function pos_tab_clear(array $params)
+{
+    require_csrf();
+    require_auth();
+    $tabId = path_id($params);
+    transaction(function (PDO $pdo) use ($tabId): void {
+        $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
+        $tab->execute([$tabId]);
+        if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
+        $pdo->prepare('DELETE FROM customer_tab_items WHERE tab_id = ?')->execute([$tabId]);
+        $pdo->prepare('UPDATE customer_tabs SET updated_at = NOW() WHERE id = ?')->execute([$tabId]);
+    });
+    no_content();
+}
+
 function pos_sale_create(array $params = [])
 {
     require_csrf();
     $user = require_auth();
     $body = request_body();
     $sessionId = value_id($body, 'cashSessionId');
+    $tabId = isset($body['tabId']) && $body['tabId'] !== null ? value_id($body, 'tabId') : null;
     $discount = isset($body['discount']) ? value_number($body, 'discount', 0) : 0;
     if (!is_array($body['items'] ?? null) || !$body['items'] || count($body['items']) > 100) {
         throw new ApiError('La venta debe contener productos.');
@@ -659,13 +786,29 @@ function pos_sale_create(array $params = [])
         ];
     }
 
-    $result = transaction(function (PDO $pdo) use ($user, $sessionId, $discount, $requested, $payments): array {
+    $result = transaction(function (PDO $pdo) use ($user, $sessionId, $tabId, $discount, $requested, $payments): array {
         $sessionStatement = $pdo->prepare("SELECT id, opened_by FROM cash_sessions WHERE id = ? AND status = 'open' FOR UPDATE");
         $sessionStatement->execute([$sessionId]);
         $session = $sessionStatement->fetch();
         if (!$session) throw new ApiError('La caja no está abierta.', 409);
         if ((int) $session['opened_by'] !== (int) $user['id']) {
             throw new ApiError('Solo puede vender en su propia caja.', 403);
+        }
+
+        if ($tabId !== null) {
+            $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
+            $tab->execute([$tabId]);
+            if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
+            $tabItems = $pdo->prepare('SELECT product_id, quantity FROM customer_tab_items WHERE tab_id = ? ORDER BY product_id FOR UPDATE');
+            $tabItems->execute([$tabId]);
+            $stored = [];
+            foreach ($tabItems->fetchAll() as $line) $stored[(int) $line['product_id']] = (float) $line['quantity'];
+            if (count($stored) !== count($requested)) throw new ApiError('La cuenta cambió. Actualícela antes de cobrar.', 409);
+            foreach ($requested as $productId => $quantity) {
+                if (!isset($stored[$productId]) || abs($stored[$productId] - $quantity) > 0.0009) {
+                    throw new ApiError('La cuenta cambió. Actualícela antes de cobrar.', 409);
+                }
+            }
         }
 
         $productIds = array_keys($requested);
@@ -740,6 +883,10 @@ function pos_sale_create(array $params = [])
                    (inventory_item_id, movement_type, quantity, unit_cost, reference_type, reference_id, created_by)
                  VALUES (?, 'sale', ?, ?, 'sale', ?, ?)"
             )->execute([$itemId, -$needed, $itemState[$itemId]['average_cost'], $saleId, $user['id']]);
+        }
+        if ($tabId !== null) {
+            $pdo->prepare("UPDATE customer_tabs SET status = 'paid', sale_id = ?, closed_at = NOW(), updated_at = NOW() WHERE id = ?")
+                ->execute([$saleId, $tabId]);
         }
         audit_log($pdo, $user, 'complete', 'sale', $saleId, null, compact('receipt', 'total'));
         return ['id' => $saleId, 'receipt' => $receipt, 'subtotal' => $subtotal, 'tax' => $tax, 'discount' => $discount, 'total' => $total];

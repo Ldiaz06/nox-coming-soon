@@ -14,6 +14,10 @@ const state = {
   terminals: [],
   insights: null,
   cart: new Map(),
+  posMode: null,
+  activeTab: null,
+  openTabs: [],
+  tabMutation: Promise.resolve(),
   clockTimer: null,
   catalogReady: false,
   pagination: {
@@ -322,13 +326,80 @@ async function loadDashboard() {
 }
 
 async function loadPos() {
-  const [{ sessions }] = await Promise.all([api("/api/cash/sessions")]);
+  const [{ sessions }] = await Promise.all([api("/api/cash/sessions"), loadPosTabs()]);
   state.cashSessions = sessions;
   const open = ownOpenSession();
   $("#pos-session-label").textContent = open ? `${open.terminalName} · Abierta` : "Caja cerrada";
   $("#pos-session-label").className = `status-pill ${open ? "badge--success" : "badge--danger"}`;
   await loadPosCatalog();
+  if (state.activeTab && !state.openTabs.some((tab) => Number(tab.id) === Number(state.activeTab.id))) {
+    state.posMode = null;
+    state.activeTab = null;
+    state.cart.clear();
+  }
+  renderAccountMode();
   renderCart();
+}
+
+async function loadPosTabs() {
+  const { tabs } = await api("/api/pos/tabs");
+  state.openTabs = tabs;
+  renderOpenTabs();
+}
+
+function renderOpenTabs() {
+  $("#open-tabs").innerHTML = state.openTabs.length ? state.openTabs.map((tab) => `
+    <button type="button" class="open-tab" data-tab-id="${tab.id}">
+      <span><strong>${escapeHtml(tab.customerName)}</strong><small>${Number(tab.itemCount) ? `${quantityNumber.format(tab.itemCount)} productos` : "Cuenta vacía"} · ${escapeHtml(tab.openedBy)}</small></span>
+      <b>${money.format(tab.total)}</b>
+    </button>`).join("") : '<p class="empty-state">No hay cuentas abiertas.</p>';
+}
+
+function renderAccountMode() {
+  const selected = Boolean(state.posMode);
+  $("#pos-account-selector").hidden = selected;
+  $("#active-account-bar").hidden = !selected;
+  const accountName = state.posMode === "quick" ? "⚡ Venta rápida" : state.activeTab?.customerName || "";
+  $("#active-account-name").textContent = accountName;
+  $("#current-order-account").textContent = selected ? accountName : "Seleccione una cuenta";
+  $("#product-search").disabled = !selected;
+  $("#product-category").disabled = !selected;
+  $("#clear-cart").disabled = !selected;
+  $("#complete-sale").textContent = state.posMode === "tab" ? "Cobrar cuenta" : state.posMode === "quick" ? "Cobrar venta rápida" : "Seleccione una cuenta";
+  renderProducts();
+  if (selected) renderPagination("pos-pagination", "pos");
+  renderCart();
+}
+
+function selectQuickSale() {
+  state.posMode = "quick";
+  state.activeTab = null;
+  state.cart.clear();
+  $("#pos-message").textContent = "";
+  renderAccountMode();
+}
+
+async function selectTab(tabId) {
+  const { tab } = await api(`/api/pos/tabs/${tabId}`);
+  state.posMode = "tab";
+  state.activeTab = { id: Number(tab.id), customerName: tab.customerName };
+  state.cart.clear();
+  tab.items.forEach((item) => {
+    const productId = Number(item.id);
+    state.productCache.set(productId, item);
+    state.cart.set(productId, Number(item.quantity));
+  });
+  $("#pos-message").textContent = "";
+  renderAccountMode();
+}
+
+async function changeAccount() {
+  await state.tabMutation.catch(() => null);
+  state.posMode = null;
+  state.activeTab = null;
+  state.cart.clear();
+  await loadPosTabs();
+  renderAccountMode();
 }
 
 async function loadPosCatalog() {
@@ -346,6 +417,7 @@ async function loadPosCatalog() {
   categorySelect.value = categories.includes(selectedCategory) ? selectedCategory : "";
   renderProducts();
   renderPagination("pos-pagination", "pos");
+  if (!state.posMode) $("#pos-pagination").hidden = true;
   $("#product-grid").setAttribute("aria-busy", "false");
 }
 
@@ -363,6 +435,11 @@ function productIcon(product) {
 }
 
 function renderProducts() {
+  if (!state.posMode) {
+    $("#product-grid").innerHTML = '<div class="pos-selection-prompt"><span aria-hidden="true">👤</span><strong>Primero seleccione una cuenta</strong><small>El catálogo se habilitará para el cliente elegido o para una venta rápida.</small></div>';
+    $("#pos-pagination").hidden = true;
+    return;
+  }
   $("#product-grid").innerHTML = state.products.length ? state.products.map((product) => `
     <button class="product-card" data-product-id="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}, ${money.format(product.salePrice)}">
       <img class="product-photo" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async">
@@ -372,12 +449,33 @@ function renderProducts() {
 }
 
 function addToCart(productId) {
+  if (!state.posMode) return toast("Primero seleccione una cuenta o Venta rápida.", true);
   const product = state.productCache.get(productId);
   if (!product) return;
   const current = state.cart.get(productId) || 0;
   if (current + 1 > product.available) return toast("No hay más existencias disponibles.", true);
-  state.cart.set(productId, current + 1);
+  setCartQuantity(productId, current + 1);
+}
+
+function setCartQuantity(productId, quantity) {
+  const previous = state.cart.get(productId) || 0;
+  if (quantity <= 0) state.cart.delete(productId);
+  else state.cart.set(productId, quantity);
   renderCart();
+  if (state.posMode !== "tab" || !state.activeTab) return;
+  const tabId = state.activeTab.id;
+  state.tabMutation = state.tabMutation.then(async () => {
+    await api(`/api/pos/tabs/${tabId}/items`, {
+      method: "POST",
+      body: JSON.stringify({ productId, quantity })
+    });
+  }).catch(async (error) => {
+    if (previous <= 0) state.cart.delete(productId);
+    else state.cart.set(productId, previous);
+    renderCart();
+    toast(error.message, true);
+    await selectTab(tabId).catch(() => changeAccount());
+  });
 }
 
 function cartTotals() {
@@ -398,16 +496,18 @@ function renderCart() {
     const product = state.productCache.get(productId);
     if (!product) return "";
     return `<div class="cart-line"><div><strong>${escapeHtml(product.name)}</strong><small>${money.format(product.salePrice)}</small></div><div class="quantity-control"><button data-cart-change="-1" data-product-id="${productId}" aria-label="Restar">−</button><span>${quantity}</span><button data-cart-change="1" data-product-id="${productId}" aria-label="Sumar">+</button></div><strong>${money.format(product.salePrice * quantity)}</strong></div>`;
-  }).join("") : '<p class="empty-state">Seleccione productos para iniciar la orden.</p>';
+  }).join("") : `<p class="empty-state">${state.posMode ? "Seleccione productos para iniciar la orden." : "Primero seleccione una cuenta o Venta rápida."}</p>`;
   const totals = cartTotals();
   $("#cart-subtotal").textContent = money.format(totals.subtotal);
   $("#cart-tax").textContent = money.format(totals.tax);
   $("#cart-total").textContent = money.format(totals.total);
   const open = ownOpenSession();
-  $("#complete-sale").disabled = !lines.length || !open;
+  $("#complete-sale").disabled = !state.posMode || !lines.length || !open;
 }
 
 async function completeSale() {
+  if (!state.posMode) return toast("Primero seleccione una cuenta o Venta rápida.", true);
+  await state.tabMutation.catch(() => null);
   const open = ownOpenSession();
   if (!open) return toast("Debe abrir una caja antes de vender.", true);
   const totals = cartTotals();
@@ -418,12 +518,15 @@ async function completeSale() {
       method: "POST",
       body: JSON.stringify({
         cashSessionId: open.id,
+        tabId: state.posMode === "tab" ? state.activeTab?.id : null,
         discount: 0,
         items: [...state.cart].map(([productId, quantity]) => ({ productId, quantity })),
         payments: [{ method, amount: Number(totals.total.toFixed(2)), reference: $("#payment-reference").value || null }]
       })
     });
     state.cart.clear();
+    state.posMode = null;
+    state.activeTab = null;
     $("#payment-reference").value = "";
     $("#pos-message").textContent = `${sale.receipt} · ${money.format(sale.total)}`;
     toast("Venta completada e inventario actualizado.");
@@ -921,6 +1024,25 @@ $("#exit-pos").addEventListener("click", () => navigate("dashboard"));
 $("#pos-cash-button").addEventListener("click", () => navigate("cash"));
 $$('[data-refresh]').forEach((button) => button.addEventListener("click", () => navigate(button.dataset.refresh)));
 
+$("#quick-sale-mode").addEventListener("click", selectQuickSale);
+$("#new-tab-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const customerName = form.elements.customerName.value.trim();
+  try {
+    const tab = await api("/api/pos/tabs", { method: "POST", body: JSON.stringify({ customerName }) });
+    form.reset();
+    await loadPosTabs();
+    await selectTab(tab.id);
+    toast(tab.reused ? "La cuenta ya existía y fue seleccionada." : "Cuenta abierta.");
+  } catch (error) { toast(error.message, true); }
+});
+$("#open-tabs").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-tab-id]");
+  if (button) selectTab(Number(button.dataset.tabId)).catch((error) => toast(error.message, true));
+});
+$("#change-account").addEventListener("click", () => changeAccount().catch((error) => toast(error.message, true)));
+
 $("#product-search").addEventListener("input", debounce(() => {
   state.pagination.pos.page = 1;
   loadPosCatalog().catch((error) => toast(error.message, true));
@@ -930,8 +1052,27 @@ $("#product-category").addEventListener("change", () => {
   loadPosCatalog().catch((error) => toast(error.message, true));
 });
 $("#product-grid").addEventListener("click", (event) => { const button = event.target.closest("[data-product-id]"); if (button) addToCart(Number(button.dataset.productId)); });
-$("#cart-lines").addEventListener("click", (event) => { const button = event.target.closest("[data-cart-change]"); if (!button) return; const id = Number(button.dataset.productId); const product = state.productCache.get(id); if (!product) return; const next = (state.cart.get(id) || 0) + Number(button.dataset.cartChange); if (next <= 0) state.cart.delete(id); else if (next <= product.available) state.cart.set(id, next); renderCart(); });
-$("#clear-cart").addEventListener("click", () => { state.cart.clear(); renderCart(); });
+$("#cart-lines").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-cart-change]");
+  if (!button) return;
+  const id = Number(button.dataset.productId);
+  const product = state.productCache.get(id);
+  if (!product) return;
+  const next = (state.cart.get(id) || 0) + Number(button.dataset.cartChange);
+  if (next > product.available) return toast("No hay más existencias disponibles.", true);
+  setCartQuantity(id, next);
+});
+$("#clear-cart").addEventListener("click", async () => {
+  if (!state.posMode) return;
+  if (state.posMode === "tab" && state.activeTab) {
+    try {
+      await state.tabMutation.catch(() => null);
+      await api(`/api/pos/tabs/${state.activeTab.id}/clear`, { method: "POST", body: JSON.stringify({}) });
+    } catch (error) { return toast(error.message, true); }
+  }
+  state.cart.clear();
+  renderCart();
+});
 $("#complete-sale").addEventListener("click", completeSale);
 $("#payment-methods").addEventListener("click", (event) => {
   const button = event.target.closest("[data-payment-method]");

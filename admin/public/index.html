@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260724-7">
+  <link rel="stylesheet" href="/styles.css?v=20260724-8">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -77,6 +77,21 @@
           <div class="pos-operator"><span id="pos-user-name"></span><span id="pos-session-label" class="status-pill">Caja cerrada</span></div>
           <div class="pos-actions"><button id="pos-cash-button" class="button button--ghost">Mi caja</button><button id="exit-pos" class="button button--ghost">← Administración</button></div>
         </header>
+        <section id="pos-account-selector" class="pos-account-selector" aria-labelledby="pos-account-title">
+          <div class="account-selector-copy"><p class="eyebrow">PASO 1</p><h2 id="pos-account-title">Seleccione una cuenta</h2><p>Elija un cliente existente, abra una cuenta nueva o cobre una venta rápida al instante.</p></div>
+          <div class="account-actions">
+            <button id="quick-sale-mode" type="button" class="account-action account-action--quick"><span aria-hidden="true">⚡</span><strong>Venta rápida</strong><small>Cobro inmediato</small></button>
+            <form id="new-tab-form" class="new-tab-form">
+              <label for="new-tab-customer">Nueva cuenta</label>
+              <div><input id="new-tab-customer" name="customerName" maxlength="120" minlength="2" autocomplete="off" placeholder="Nombre del cliente" required><button class="button button--primary" type="submit">Abrir cuenta</button></div>
+            </form>
+          </div>
+          <div><p class="account-list-label">Cuentas abiertas</p><div id="open-tabs" class="open-tabs"></div></div>
+        </section>
+        <div id="active-account-bar" class="active-account-bar" hidden>
+          <div><span>Cuenta seleccionada</span><strong id="active-account-name"></strong></div>
+          <button id="change-account" type="button" class="button button--ghost">Cambiar cuenta</button>
+        </div>
         <div class="pos-layout">
           <div class="panel catalog-panel">
             <div class="catalog-tools"><input id="product-search" type="search" aria-label="Buscar producto" placeholder="Buscar producto o código"><select id="product-category" aria-label="Filtrar categoría"><option value="">Todas las categorías</option></select></div>
@@ -84,7 +99,7 @@
             <nav id="pos-pagination" class="pagination" aria-label="Páginas de productos" hidden></nav>
           </div>
           <aside class="panel cart-panel">
-            <div class="panel-heading"><h3>Orden actual</h3><button id="clear-cart" class="text-button">Limpiar</button></div>
+            <div class="panel-heading"><div><h3>Orden actual</h3><small id="current-order-account">Seleccione una cuenta</small></div><button id="clear-cart" class="text-button">Limpiar</button></div>
             <div id="cart-lines" class="cart-lines"></div>
             <div class="cart-totals"><div><span>Subtotal</span><strong id="cart-subtotal">0.00</strong></div><div><span>Impuesto</span><strong id="cart-tax">0.00</strong></div><div class="cart-total"><span>Total</span><strong id="cart-total">0.00</strong></div></div>
             <div id="payment-methods" class="payment-methods" role="group" aria-label="Método de pago">
@@ -248,6 +263,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260724-11" defer></script>
+  <script src="/app.js?v=20260724-12" defer></script>
 </body>
 </html>

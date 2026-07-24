@@ -228,6 +228,37 @@ CREATE TABLE IF NOT EXISTS sale_items (
   CONSTRAINT sale_items_product_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS customer_tabs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  customer_name VARCHAR(120) NOT NULL,
+  status ENUM('open', 'paid', 'void') NOT NULL DEFAULT 'open',
+  sale_id BIGINT UNSIGNED NULL,
+  opened_by BIGINT UNSIGNED NOT NULL,
+  opened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  closed_at DATETIME NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY customer_tabs_sale_uq (sale_id),
+  KEY customer_tabs_status_idx (status, updated_at),
+  KEY customer_tabs_opened_by_idx (opened_by),
+  CONSTRAINT customer_tabs_sale_fk FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
+  CONSTRAINT customer_tabs_user_fk FOREIGN KEY (opened_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS customer_tab_items (
+  tab_id BIGINT UNSIGNED NOT NULL,
+  product_id BIGINT UNSIGNED NOT NULL,
+  quantity DECIMAL(12,3) NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (tab_id, product_id),
+  KEY customer_tab_items_product_idx (product_id),
+  CONSTRAINT customer_tab_items_tab_fk FOREIGN KEY (tab_id) REFERENCES customer_tabs(id) ON DELETE CASCADE,
+  CONSTRAINT customer_tab_items_product_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,
+  CONSTRAINT customer_tab_items_quantity_ck CHECK (quantity > 0)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS payments (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   sale_id BIGINT UNSIGNED NOT NULL,

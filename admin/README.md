@@ -27,6 +27,11 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 - Administrador: acceso total, usuarios, inventario, POS, reportes, horas y planilla.
 - Supervisor: POS, inventario, cajas, reportes y aprobación de horas.
 - Cajero: POS de pantalla completa, su propia caja y marcación personal.
+
+El POS está optimizado para pantallas táctiles. Antes de agregar productos se
+debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
+seleccionar **Venta rápida**. Las cuentas conservan sus productos en MySQL hasta
+el cobro; una venta rápida se cobra sin dejar una cuenta pendiente.
 - Acceso mediante nombre de usuario, sin correo obligatorio.
 - Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
 - Inventario conectado a recetas y ventas.
