@@ -27,7 +27,7 @@ const NEW_CATEGORY = "__new_category__";
 const DEFAULT_PRODUCT_IMAGE = "/assets/product-default-v3.webp";
 const articleCategories = [
   "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
-  "Ron", "Whisky / Whiskey", "Vodka", "Ginebra", "Tequila", "Mezcal", "Brandy y coñac",
+  "Ron", "Aguardiente y seco", "Whisky / Whiskey", "Vodka", "Ginebra", "Tequila", "Mezcal", "Brandy y coñac",
   "Vino tinto", "Vino blanco", "Vino rosado", "Vino espumoso", "Champagne",
   "Licores y cremas", "Aperitivos y vermut", "Amargos y bitters", "Sake y destilados asiáticos",
   "Aguas", "Gaseosas y sodas", "Tónicas", "Bebidas energéticas", "Jugos y néctares",

@@ -93,6 +93,32 @@ También permite una presentación personalizada. Las unidades de control
 incluyen piezas, botellas, latas, mililitros, litros, onzas líquidas, gramos,
 kilogramos, porciones, paquetes, cajas y barriles.
 
+## Catálogo base para el mercado panameño
+
+El archivo independiente:
+
+```text
+/home/noxpana/public_html/admin/db/seed_panama_inventory.sql
+```
+
+agrega **222 artículos distribuidos en 45 categorías**, incluyendo cervezas
+nacionales, importadas y artesanales, ron y seco panameño, whisky, vodka,
+ginebra, tequila, mezcal, vinos, champagne, mezcladores, frutas, insumos de
+barra, alimentos, limpieza y cristalería.
+
+Ejecútelo solamente después de `schema.sql`, desde phpMyAdmin o Terminal:
+
+```bash
+mysql -u noxpana_nox_app -p noxpana_noxpa \
+  < /home/noxpana/public_html/admin/db/seed_panama_inventory.sql
+```
+
+El catálogo es idempotente: puede ejecutarse más de una vez y nunca reemplaza
+un SKU existente. Todos los artículos nuevos empiezan con existencia, mínimo y
+costo en cero. Esto evita registrar precios o cantidades que no correspondan a
+las facturas reales de los proveedores. Después de importarlo, registre la
+primera compra desde **Inventario > Registrar compra**.
+
 ## Costos, rentabilidad y reposición
 
 Al crear un producto de venta, el sistema suma el costo promedio vigente de
