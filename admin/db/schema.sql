@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS products (
   sale_price DECIMAL(12,2) NOT NULL,
   tax_rate DECIMAL(7,4) NOT NULL DEFAULT 0,
   target_margin DECIMAL(5,4) NOT NULL DEFAULT 0.7000,
-  image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default.webp',
+  image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default-v2.webp',
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -575,15 +575,17 @@ BEGIN
 
   IF column_exists = 0 THEN
     ALTER TABLE products
-      ADD COLUMN image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default.webp' AFTER target_margin;
+      ADD COLUMN image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default-v2.webp' AFTER target_margin;
   END IF;
 
   UPDATE products
-  SET image_path = '/assets/product-default.webp'
-  WHERE image_path IS NULL OR TRIM(image_path) = '';
+  SET image_path = '/assets/product-default-v2.webp'
+  WHERE image_path IS NULL
+     OR TRIM(image_path) = ''
+     OR image_path = '/assets/product-default.webp';
 
   ALTER TABLE products
-    MODIFY COLUMN image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default.webp';
+    MODIFY COLUMN image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default-v2.webp';
 
   SELECT COUNT(*) INTO index_exists
   FROM information_schema.statistics

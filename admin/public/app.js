@@ -24,7 +24,7 @@ const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", li
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const NEW_CATEGORY = "__new_category__";
-const DEFAULT_PRODUCT_IMAGE = "/assets/product-default.webp";
+const DEFAULT_PRODUCT_IMAGE = "/assets/product-default-v2.webp";
 const articleCategories = [
   "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
   "Ron", "Whisky / Whiskey", "Vodka", "Ginebra", "Tequila", "Mezcal", "Brandy y coñac",

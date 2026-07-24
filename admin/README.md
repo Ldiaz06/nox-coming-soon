@@ -55,9 +55,10 @@ categoría queda disponible automáticamente para los siguientes registros.
 
 Cada producto puede llevar una fotografía JPG, PNG o WebP de hasta 5 MB. Si no
 se carga una imagen, el sistema utiliza automáticamente el recurso liviano
-`/assets/product-default.webp`, con el isotipo de los dos círculos dorados de
-NOX. La imagen se muestra en el catálogo administrativo y en las tarjetas del
-POS. Un administrador o supervisor puede reemplazarla desde **Productos >
+`/assets/product-default-v2.webp`, con una composición de botella de licor,
+cóctel, cerveza y aperitivo sobre una barra nocturna. La imagen se muestra en
+el catálogo administrativo y en las tarjetas del POS. Un administrador o
+supervisor puede reemplazarla desde **Productos >
 Agregar foto** o **Cambiar foto**. Los archivos personalizados se guardan en:
 
 ```text
