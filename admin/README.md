@@ -53,10 +53,12 @@ categorías para bares y discotecas. Si una categoría no existe, seleccione
 `+ Agregar nueva categoría` y escríbala; después de guardar el registro, esa
 categoría queda disponible automáticamente para los siguientes registros.
 
-Cada producto de venta lleva una fotografía JPG, PNG o WebP de hasta 5 MB. La
-imagen se muestra en el catálogo administrativo y en las tarjetas del POS. Un
-administrador o supervisor puede reemplazarla desde **Productos > Cambiar
-foto**. Los archivos se guardan en:
+Cada producto puede llevar una fotografía JPG, PNG o WebP de hasta 5 MB. Si no
+se carga una imagen, el sistema utiliza automáticamente el recurso liviano
+`/assets/product-default.webp`, con el isotipo de los dos círculos dorados de
+NOX. La imagen se muestra en el catálogo administrativo y en las tarjetas del
+POS. Un administrador o supervisor puede reemplazarla desde **Productos >
+Agregar foto** o **Cambiar foto**. Los archivos personalizados se guardan en:
 
 ```text
 /home/noxpana/public_html/admin/public/uploads/products

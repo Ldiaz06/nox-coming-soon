@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260724-4">
+  <link rel="stylesheet" href="/styles.css?v=20260724-5">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -160,7 +160,7 @@
           <label>Categoría<select id="product-category-input" name="category" required><option value="">Seleccione una categoría</option></select></label>
           <label id="product-new-category-field" hidden>Nueva categoría<input name="categoryNew" maxlength="100" placeholder="Escriba la nueva categoría"></label>
           <label>Código de barras<input name="barcode" maxlength="120"></label><label>Precio de venta<input name="salePrice" type="number" min="0" step="0.01" required></label><label>Margen bruto objetivo (%)<input name="targetMargin" type="number" min="10" max="95" step="0.1" value="70" required><small class="field-hint">Porcentaje del precio que debe quedar después del costo de ingredientes.</small></label><label>Impuesto (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="0"></label>
-          <label class="product-photo-field">Foto del producto<input name="image" type="file" accept="image/jpeg,image/png,image/webp" required><small class="field-hint">JPG, PNG o WebP · máximo 5 MB.</small></label>
+          <label class="product-photo-field">Foto del producto (opcional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp"><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Si no selecciona una, se utilizará la imagen predeterminada de NOX.</small></label>
           <div id="product-image-preview" class="image-preview" hidden><img alt="Vista previa del producto"></div>
           <div class="wide-field"><div class="recipe-heading"><div><span>Artículos que componen este producto</span><small>Cantidades descontadas por cada unidad vendida.</small></div><button id="add-recipe-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="recipe-rows" class="recipe-rows"></div></div>
           <div id="product-pricing-preview" class="pricing-preview wide-field" role="status" aria-live="polite"></div>
@@ -260,6 +260,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260724-4" defer></script>
+  <script src="/app.js?v=20260724-5" defer></script>
 </body>
 </html>
