@@ -588,7 +588,7 @@ function pos_products(array $params = [])
     $search = catalog_search();
     $category = trim(substr((string) ($_GET['category'] ?? ''), 0, 100));
     $base = 'SELECT p.id, p.sku, p.barcode, p.name, p.category, p.image_path AS imageUrl, p.sale_price AS salePrice, p.tax_rate AS taxRate,
-                COALESCE(MIN(i.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
+                COALESCE(MIN(GREATEST(0, i.current_stock - i.reserved_stock) / NULLIF(r.quantity, 0)), 0) AS available
          FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
          WHERE p.active = TRUE GROUP BY p.id';
@@ -684,7 +684,10 @@ function pos_tab_detail(array $params)
         "SELECT p.id, p.sku, p.name, p.category, p.image_path AS imageUrl,
                 i.unit_price AS salePrice, p.tax_rate AS taxRate, i.quantity,
                 MIN(i.added_at) AS addedAt,
-                COALESCE(MIN(stock.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
+                COALESCE(MIN(
+                  GREATEST(0, stock.current_stock - stock.reserved_stock + (r.quantity * i.quantity))
+                  / NULLIF(r.quantity, 0)
+                ), 0) AS available
          FROM customer_tab_items i
          JOIN products p ON p.id = i.product_id
          LEFT JOIN product_recipes r ON r.product_id = p.id
@@ -715,20 +718,45 @@ function pos_tab_item_set(array $params)
         $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
         $tab->execute([$tabId]);
         if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
+        $currentLine = $pdo->prepare('SELECT quantity FROM customer_tab_items WHERE tab_id = ? AND product_id = ? FOR UPDATE');
+        $currentLine->execute([$tabId, $productId]);
+        $currentQuantity = (float) ($currentLine->fetchColumn() ?: 0);
+        $difference = $quantity - $currentQuantity;
+        $product = $pdo->prepare('SELECT id, sale_price FROM products WHERE id = ? AND active = TRUE FOR UPDATE');
+        $product->execute([$productId]);
+        $row = $product->fetch();
+        if (!$row) throw new ApiError('El producto no está disponible.', 409);
+        $recipe = $pdo->prepare(
+            'SELECT r.inventory_item_id, r.quantity, i.name AS item_name,
+                    i.current_stock, i.reserved_stock
+             FROM product_recipes r
+             JOIN inventory_items i ON i.id = r.inventory_item_id
+             WHERE r.product_id = ?
+             ORDER BY r.inventory_item_id FOR UPDATE'
+        );
+        $recipe->execute([$productId]);
+        $components = $recipe->fetchAll();
+        if (!$components) throw new ApiError('El producto no tiene receta de inventario.', 409);
+        if ($difference > 0) {
+            foreach ($components as $component) {
+                $needed = (float) $component['quantity'] * $difference;
+                $free = (float) $component['current_stock'] - (float) $component['reserved_stock'];
+                if ($free + 0.000001 < $needed) {
+                    throw new ApiError("Inventario ya reservado o insuficiente: {$component['item_name']}.", 409);
+                }
+            }
+        }
+        foreach ($components as $component) {
+            $reservationChange = (float) $component['quantity'] * $difference;
+            $pdo->prepare(
+                'UPDATE inventory_items
+                 SET reserved_stock = GREATEST(0, reserved_stock + ?)
+                 WHERE id = ?'
+            )->execute([$reservationChange, $component['inventory_item_id']]);
+        }
         if ($quantity <= 0) {
             $pdo->prepare('DELETE FROM customer_tab_items WHERE tab_id = ? AND product_id = ?')->execute([$tabId, $productId]);
         } else {
-            $product = $pdo->prepare(
-                "SELECT p.id, p.sale_price,
-                        COALESCE(MIN(i.current_stock / NULLIF(r.quantity, 0)), 999999) AS available
-                 FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
-                 LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
-                 WHERE p.id = ? AND p.active = TRUE GROUP BY p.id"
-            );
-            $product->execute([$productId]);
-            $row = $product->fetch();
-            if (!$row) throw new ApiError('El producto no está disponible.', 409);
-            if ($quantity > floor((float) $row['available'])) throw new ApiError('No hay suficientes existencias.', 409);
             $pdo->prepare(
                 'INSERT INTO customer_tab_items (tab_id, product_id, quantity, unit_price)
                  VALUES (?, ?, ?, ?)
@@ -749,6 +777,22 @@ function pos_tab_clear(array $params)
         $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
         $tab->execute([$tabId]);
         if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
+        $reservations = $pdo->prepare(
+            'SELECT r.inventory_item_id, SUM(r.quantity * i.quantity) AS quantity
+             FROM customer_tab_items i
+             JOIN product_recipes r ON r.product_id = i.product_id
+             WHERE i.tab_id = ?
+             GROUP BY r.inventory_item_id
+             ORDER BY r.inventory_item_id'
+        );
+        $reservations->execute([$tabId]);
+        foreach ($reservations->fetchAll() as $reservation) {
+            $pdo->prepare(
+                'UPDATE inventory_items
+                 SET reserved_stock = GREATEST(0, reserved_stock - ?)
+                 WHERE id = ?'
+            )->execute([$reservation['quantity'], $reservation['inventory_item_id']]);
+        }
         $pdo->prepare('DELETE FROM customer_tab_items WHERE tab_id = ?')->execute([$tabId]);
         $pdo->prepare('UPDATE customer_tabs SET updated_at = NOW() WHERE id = ?')->execute([$tabId]);
     });
@@ -821,7 +865,8 @@ function pos_sale_create(array $params = [])
         foreach ($productRows as $product) $products[(int) $product['id']] = $product;
 
         $recipeStatement = $pdo->prepare(
-            "SELECT r.product_id, r.inventory_item_id, r.quantity, i.name AS item_name, i.current_stock, i.average_cost
+            "SELECT r.product_id, r.inventory_item_id, r.quantity, i.name AS item_name,
+                    i.current_stock, i.reserved_stock, i.average_cost
              FROM product_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
              WHERE r.product_id IN ({$in}) ORDER BY r.inventory_item_id FOR UPDATE"
         );
@@ -841,8 +886,14 @@ function pos_sale_create(array $params = [])
             if (empty($recipes[$productId])) throw new ApiError("El producto {$products[$productId]['name']} no tiene receta de inventario.", 409);
         }
         foreach ($requirements as $itemId => $needed) {
-            if ((float) $itemState[$itemId]['current_stock'] < $needed) {
+            $available = $tabId !== null
+                ? (float) $itemState[$itemId]['current_stock']
+                : (float) $itemState[$itemId]['current_stock'] - (float) $itemState[$itemId]['reserved_stock'];
+            if ($available + 0.000001 < $needed) {
                 throw new ApiError("Inventario insuficiente: {$itemState[$itemId]['item_name']}.", 409);
+            }
+            if ($tabId !== null && (float) $itemState[$itemId]['reserved_stock'] + 0.000001 < $needed) {
+                throw new ApiError("La reserva de inventario está incompleta: {$itemState[$itemId]['item_name']}.", 409);
             }
         }
 
@@ -877,7 +928,17 @@ function pos_sale_create(array $params = [])
         $paymentInsert = $pdo->prepare('INSERT INTO payments (sale_id, method, amount, reference_number) VALUES (?, ?, ?, ?)');
         foreach ($payments as $payment) $paymentInsert->execute([$saleId, $payment['method'], $payment['amount'], $payment['reference']]);
         foreach ($requirements as $itemId => $needed) {
-            $pdo->prepare('UPDATE inventory_items SET current_stock = current_stock - ? WHERE id = ?')->execute([$needed, $itemId]);
+            if ($tabId !== null) {
+                $pdo->prepare(
+                    'UPDATE inventory_items
+                     SET current_stock = current_stock - ?,
+                         reserved_stock = GREATEST(0, reserved_stock - ?)
+                     WHERE id = ?'
+                )->execute([$needed, $needed, $itemId]);
+            } else {
+                $pdo->prepare('UPDATE inventory_items SET current_stock = current_stock - ? WHERE id = ?')
+                    ->execute([$needed, $itemId]);
+            }
             $pdo->prepare(
                 "INSERT INTO inventory_movements
                    (inventory_item_id, movement_type, quantity, unit_cost, reference_type, reference_id, created_by)

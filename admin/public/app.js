@@ -398,7 +398,7 @@ async function changeAccount() {
   state.posMode = null;
   state.activeTab = null;
   state.cart.clear();
-  await loadPosTabs();
+  await Promise.all([loadPosTabs(), loadPosCatalog()]);
   renderAccountMode();
 }
 

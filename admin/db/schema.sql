@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   safety_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 2,
   target_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 14,
   current_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
+  reserved_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   minimum_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   average_cost DECIMAL(14,4) NOT NULL DEFAULT 0,
   active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -593,6 +594,34 @@ BEGIN
 
   UPDATE inventory_items
   SET target_stock_days = GREATEST(target_stock_days, lead_time_days + safety_stock_days + 1);
+
+  -- Las cuentas abiertas reservan inventario físico para impedir que una misma
+  -- unidad se asigne simultáneamente a clientes distintos.
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'reserved_stock';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN reserved_stock DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER current_stock;
+  END IF;
+
+  UPDATE inventory_items
+  SET reserved_stock = 0;
+
+  UPDATE inventory_items inventory
+  JOIN (
+    SELECT recipe.inventory_item_id,
+           SUM(recipe.quantity * tab_item.quantity) AS reserved_quantity
+    FROM customer_tabs tab
+    JOIN customer_tab_items tab_item ON tab_item.tab_id = tab.id
+    JOIN product_recipes recipe ON recipe.product_id = tab_item.product_id
+    WHERE tab.status = 'open'
+    GROUP BY recipe.inventory_item_id
+  ) reservations ON reservations.inventory_item_id = inventory.id
+  SET inventory.reserved_stock = GREATEST(0, reservations.reserved_quantity);
 
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns

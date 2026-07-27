@@ -31,7 +31,10 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
 debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
 seleccionar **Venta rápida**. Las cuentas conservan sus productos en MySQL hasta
-el cobro; una venta rápida se cobra sin dejar una cuenta pendiente.
+el cobro y reservan inmediatamente los artículos de sus recetas. El POS descuenta
+esas reservas de la disponibilidad de las demás cuentas y ventas rápidas. Al
+limpiar una cuenta se liberan; al cobrar se convierten en salida definitiva sin
+descontar dos veces. Una venta rápida se cobra sin dejar una cuenta pendiente.
 - Acceso mediante nombre de usuario, sin correo obligatorio.
 - Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
 - Inventario conectado a recetas y ventas.
