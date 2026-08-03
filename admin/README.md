@@ -45,10 +45,16 @@ modifica la portada pública:
   una aplicación, e incluye lectura desde una foto como alternativa.
 
 La cámara del navegador requiere que `admin.noxpanama.com` se abra mediante
-**HTTPS**. Después de actualizar los archivos, vuelva a importar
-`admin/db/schema.sql`: el instalador es idempotente y crea las tablas
-`events`, `event_guests` y `event_access_log` sin eliminar la información
-existente.
+**HTTPS**. Si la base de datos ya está creada, importe únicamente:
+
+```text
+/home/noxpana/public_html/admin/db/migrate_events_access.sql
+```
+
+Este instalador independiente es idempotente y solo crea las tablas `events`,
+`event_guests` y `event_access_log`; no modifica ventas, inventario, usuarios,
+cajas, planilla ni otros datos existentes. Para una instalación completamente
+nueva, `admin/db/schema.sql` ya incluye también estas tres tablas.
 
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
 debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
