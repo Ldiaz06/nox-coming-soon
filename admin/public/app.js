@@ -17,6 +17,11 @@ const state = {
   selectedEvent: null,
   eventGuests: [],
   eventAccesses: [],
+  guestImport: {
+    fileName: "",
+    rows: [],
+    errors: []
+  },
   qrDownloadName: "nox-acceso.png",
   scanner: {
     stream: null,
@@ -410,10 +415,12 @@ function renderEventList() {
 }
 
 async function openEvent(eventId) {
+  const changedEvent = Number(state.selectedEvent?.id || 0) !== Number(eventId);
   const detail = await api(`/api/events/${eventId}`);
   state.selectedEvent = detail.event;
   state.eventGuests = detail.guests;
   state.eventAccesses = detail.accesses;
+  if (changedEvent) resetGuestImport();
   renderEventList();
   renderEventDetail();
 }
@@ -463,6 +470,182 @@ function renderEventGuests() {
       <td>${canManage ? `<button class="table-action" data-guest-qr="${guest.id}">Ver QR</button>` : ""}${managerActions}</td>
     </tr>`;
   }).join("") : '<tr><td colspan="5"><p class="empty-state">Agregue invitados para generar sus códigos personales.</p></td></tr>';
+}
+
+const GUEST_IMPORT_MAX_ROWS = 500;
+const GUEST_IMPORT_MAX_FILE_SIZE = 5 * 1024 * 1024;
+let spreadsheetLibraryPromise = null;
+
+function guestImportEmptyState(fileName = "") {
+  return { fileName, rows: [], errors: [] };
+}
+
+function resetGuestImport() {
+  state.guestImport = guestImportEmptyState();
+  const input = $("#guest-import-file");
+  if (!input) return;
+  input.value = "";
+  $("#guest-import-file-name").textContent = "Formatos admitidos: .xlsx, .xls y .csv · máximo 500 invitados";
+  $("#guest-import-preview").hidden = true;
+  $("#guest-import-table").replaceChildren();
+  $("#guest-import-errors").textContent = "";
+  const button = $("#import-guests-button");
+  button.disabled = true;
+  button.textContent = "Importar invitados";
+}
+
+function loadSpreadsheetLibrary() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (spreadsheetLibraryPromise) return spreadsheetLibraryPromise;
+  spreadsheetLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/vendor/sheetjs/xlsx.full.min.js?v=0.20.3";
+    script.onload = () => window.XLSX
+      ? resolve(window.XLSX)
+      : reject(new Error("No fue posible iniciar el lector de Excel."));
+    script.onerror = () => reject(new Error("No fue posible cargar el lector de Excel."));
+    document.head.append(script);
+  }).catch((error) => {
+    spreadsheetLibraryPromise = null;
+    throw error;
+  });
+  return spreadsheetLibraryPromise;
+}
+
+function normalizeSpreadsheetHeader(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function spreadsheetCellText(value) {
+  return String(value ?? "").trim();
+}
+
+function guestImportColumn(headers, aliases) {
+  return headers.findIndex((header) => aliases.includes(normalizeSpreadsheetHeader(header)));
+}
+
+function parseGuestWorkbook(fileData) {
+  let workbook;
+  try {
+    workbook = window.XLSX.read(fileData, { type: "array" });
+  } catch {
+    throw new Error("No fue posible leer el archivo. Verifique que sea un Excel o CSV válido y que no tenga contraseña.");
+  }
+  const sheetName = workbook.SheetNames.find((name) => normalizeSpreadsheetHeader(name) === "invitados")
+    || workbook.SheetNames[0];
+  if (!sheetName) throw new Error("El archivo no contiene ninguna hoja.");
+  const grid = window.XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    header: 1,
+    defval: "",
+    blankrows: false,
+    raw: false
+  });
+  const nameAliases = ["nombre completo", "nombre", "invitado", "full name"];
+  let headerIndex = -1;
+  for (let index = 0; index < Math.min(grid.length, 10); index += 1) {
+    if (guestImportColumn(grid[index], nameAliases) >= 0) {
+      headerIndex = index;
+      break;
+    }
+  }
+  if (headerIndex < 0) {
+    throw new Error('No se encontró la columna obligatoria "Nombre completo". Descargue la plantilla y conserve sus encabezados.');
+  }
+
+  const headers = grid[headerIndex];
+  const nameIndex = guestImportColumn(headers, nameAliases);
+  const contactIndex = guestImportColumn(headers, ["contacto", "telefono o correo", "telefono", "correo", "email", "e mail"]);
+  const notesIndex = guestImportColumn(headers, ["notas", "nota", "mesa promotor o cortesia"]);
+  const rows = [];
+  const seen = new Map();
+
+  grid.slice(headerIndex + 1).forEach((source, offset) => {
+    const fullName = spreadsheetCellText(source[nameIndex]);
+    const contact = contactIndex >= 0 ? spreadsheetCellText(source[contactIndex]) : "";
+    const notes = notesIndex >= 0 ? spreadsheetCellText(source[notesIndex]) : "";
+    if (!fullName && !contact && !notes) return;
+    const rowNumber = headerIndex + offset + 2;
+    const issues = [];
+    if (fullName.length < 2 || fullName.length > 160) issues.push("El nombre debe tener entre 2 y 160 caracteres.");
+    if (contact.length > 160) issues.push("El contacto supera 160 caracteres.");
+    if (notes.length > 300) issues.push("Las notas superan 300 caracteres.");
+    const fingerprint = [fullName, contact, notes].map((value) => value.toLocaleLowerCase("es")).join("\u0000");
+    if (fingerprint !== "\u0000\u0000" && seen.has(fingerprint)) {
+      issues.push(`Repite exactamente la fila ${seen.get(fingerprint)}.`);
+    } else {
+      seen.set(fingerprint, rowNumber);
+    }
+    rows.push({ rowNumber, fullName, contact, notes, issues });
+  });
+
+  if (!rows.length) throw new Error("El archivo no contiene invitados debajo de los encabezados.");
+  const errors = rows.flatMap((row) => row.issues.map((issue) => `Fila ${row.rowNumber}: ${issue}`));
+  if (rows.length > GUEST_IMPORT_MAX_ROWS) {
+    errors.unshift(`El archivo contiene ${rows.length} invitados; el máximo por importación es ${GUEST_IMPORT_MAX_ROWS}.`);
+  }
+  return { rows, errors };
+}
+
+function renderGuestImportPreview() {
+  const { fileName, rows, errors } = state.guestImport;
+  const preview = $("#guest-import-preview");
+  preview.hidden = false;
+  $("#guest-import-summary").textContent = rows.length
+    ? `${fileName} · ${rows.length} ${rows.length === 1 ? "invitado" : "invitados"}`
+    : fileName;
+  const visibleRows = rows.slice(0, 25);
+  $("#guest-import-table").innerHTML = visibleRows.map((row) => {
+    const invalid = row.issues.length > 0;
+    return `<tr class="${invalid ? "guest-import-row--error" : ""}">
+      <td>${row.rowNumber}</td>
+      <td>${escapeHtml(row.fullName || "—")}</td>
+      <td>${escapeHtml(row.contact || "—")}</td>
+      <td>${escapeHtml(row.notes || "—")}</td>
+      <td><span class="guest-import-status ${invalid ? "is-error" : ""}">${invalid ? escapeHtml(row.issues[0]) : "Correcto"}</span></td>
+    </tr>`;
+  }).join("") + (rows.length > visibleRows.length
+    ? `<tr><td colspan="5"><p class="empty-state">Y ${rows.length - visibleRows.length} filas más.</p></td></tr>`
+    : "");
+  const status = $("#guest-import-errors");
+  status.classList.toggle("is-valid", errors.length === 0 && rows.length > 0);
+  status.textContent = errors.length
+    ? `${errors.length} ${errors.length === 1 ? "problema encontrado" : "problemas encontrados"}. ${errors.slice(0, 4).join(" ")}${errors.length > 4 ? " Revise también las filas marcadas." : ""}`
+    : "Archivo validado. Todos los invitados están listos para crear su QR personal.";
+  const button = $("#import-guests-button");
+  button.disabled = errors.length > 0 || rows.length < 1 || rows.length > GUEST_IMPORT_MAX_ROWS;
+  button.textContent = rows.length ? `Importar ${rows.length} invitados` : "Importar invitados";
+}
+
+async function prepareGuestImport(file) {
+  if (!file) return;
+  state.guestImport = guestImportEmptyState(file.name);
+  $("#guest-import-file-name").textContent = `Leyendo ${file.name}…`;
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+    state.guestImport.errors = ["Use un archivo con extensión .xlsx, .xls o .csv."];
+    renderGuestImportPreview();
+    return;
+  }
+  if (file.size > GUEST_IMPORT_MAX_FILE_SIZE) {
+    state.guestImport.errors = ["El archivo supera el tamaño máximo de 5 MB."];
+    renderGuestImportPreview();
+    return;
+  }
+  try {
+    await loadSpreadsheetLibrary();
+    const parsed = parseGuestWorkbook(await file.arrayBuffer());
+    state.guestImport = { fileName: file.name, ...parsed };
+    $("#guest-import-file-name").textContent = file.name;
+    renderGuestImportPreview();
+  } catch (error) {
+    state.guestImport.errors = [error.message];
+    $("#guest-import-file-name").textContent = file.name;
+    renderGuestImportPreview();
+  }
 }
 
 function renderEventAccesses() {
@@ -1830,6 +2013,40 @@ $("#edit-event-form").addEventListener("submit", async (event) => {
     toast("Evento actualizado.");
     await loadEvents();
   } catch (error) { toast(error.message, true); }
+});
+
+$("#guest-import-file").addEventListener("change", async (event) => {
+  await prepareGuestImport(event.currentTarget.files?.[0]);
+});
+
+$("#clear-guest-import").addEventListener("click", resetGuestImport);
+
+$("#import-guests-button").addEventListener("click", async (event) => {
+  const selected = state.selectedEvent;
+  const { rows, errors } = state.guestImport;
+  if (!selected || selected.accessMode !== "personal") return toast("Seleccione un evento con QR personal.", true);
+  if (!rows.length || errors.length || rows.length > GUEST_IMPORT_MAX_ROWS) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "Importando…";
+  try {
+    const result = await api(`/api/events/${selected.id}/guests/import`, {
+      method: "POST",
+      body: JSON.stringify({
+        guests: rows.map((row) => ({
+          fullName: row.fullName,
+          contact: row.contact || null,
+          notes: row.notes || null
+        }))
+      })
+    });
+    resetGuestImport();
+    await openEvent(selected.id);
+    toast(`${result.createdCount} ${result.createdCount === 1 ? "invitación creada" : "invitaciones creadas"} correctamente.`);
+  } catch (error) {
+    renderGuestImportPreview();
+    toast(error.message, true);
+  }
 });
 
 $("#new-guest-form").addEventListener("submit", async (event) => {

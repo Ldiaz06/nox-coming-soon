@@ -255,15 +255,31 @@ function events_status_update(array $params)
     json_response(['id' => $eventId, 'status' => $status]);
 }
 
+function event_guest_values(array $body, ?int $rowNumber = null): array
+{
+    try {
+        return [
+            'fullName' => value_string($body, 'fullName', 2, 160),
+            'contact' => value_string($body, 'contact', 0, 160, false),
+            'notes' => value_string($body, 'notes', 0, 300, false),
+        ];
+    } catch (ApiError $error) {
+        if ($rowNumber === null) {
+            throw $error;
+        }
+        throw new ApiError("Fila {$rowNumber}: " . $error->getMessage(), $error->status);
+    }
+}
+
 function event_guests_create(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
     $eventId = path_id($params);
-    $body = request_body();
-    $fullName = value_string($body, 'fullName', 2, 160);
-    $contact = value_string($body, 'contact', 0, 160, false);
-    $notes = value_string($body, 'notes', 0, 300, false);
+    $guest = event_guest_values(request_body());
+    $fullName = $guest['fullName'];
+    $contact = $guest['contact'];
+    $notes = $guest['notes'];
     $token = event_access_token('P');
     $guestId = transaction(function (PDO $pdo) use ($user, $eventId, $fullName, $contact, $notes, $token): int {
         $event = event_row($pdo, $eventId, true);
@@ -290,6 +306,64 @@ function event_guests_create(array $params)
         return $id;
     });
     json_response(['id' => $guestId, 'qrToken' => $token], 201);
+}
+
+function event_guests_import(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $eventId = path_id($params);
+    $rows = request_body()['guests'] ?? null;
+    if (!is_array($rows) || count($rows) < 1) {
+        throw new ApiError('El archivo no contiene invitados para importar.');
+    }
+    if (count($rows) > 500) {
+        throw new ApiError('Puede importar un máximo de 500 invitados por archivo.');
+    }
+
+    $guests = [];
+    foreach (array_values($rows) as $index => $row) {
+        if (!is_array($row)) {
+            $rowNumber = $index + 2;
+            throw new ApiError("Fila {$rowNumber}: los datos no son válidos.");
+        }
+        $guests[] = event_guest_values($row, $index + 2);
+    }
+
+    $createdCount = transaction(function (PDO $pdo) use ($user, $eventId, $guests): int {
+        $event = event_row($pdo, $eventId, true);
+        if (!$event) {
+            throw new ApiError('Evento no encontrado.', 404);
+        }
+        if ($event['accessMode'] !== 'personal') {
+            throw new ApiError('Este evento usa un QR general y no admite invitaciones personales.', 409);
+        }
+        if ($event['status'] === 'cancelled') {
+            throw new ApiError('No se pueden agregar invitados a un evento cancelado.', 409);
+        }
+
+        $statement = $pdo->prepare(
+            "INSERT INTO event_guests (event_id, full_name, contact, notes, qr_token, status, created_by)
+             VALUES (?, ?, ?, ?, ?, 'invited', ?)"
+        );
+        foreach ($guests as $guest) {
+            $statement->execute([
+                $eventId,
+                $guest['fullName'],
+                $guest['contact'],
+                $guest['notes'],
+                event_access_token('P'),
+                $user['id'],
+            ]);
+        }
+        audit_log($pdo, $user, 'bulk_create', 'event_guest', null, null, [
+            'eventId' => $eventId,
+            'guestCount' => count($guests),
+        ]);
+        return count($guests);
+    });
+
+    json_response(['createdCount' => $createdCount], 201);
 }
 
 function event_guests_reissue(array $params)

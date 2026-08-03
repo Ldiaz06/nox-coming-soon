@@ -37,6 +37,8 @@ modifica la portada pública:
   contar cada entrada;
 - un evento con **QR por persona** genera una invitación individual y bloquea
   automáticamente su segundo uso;
+- los invitados de un evento personal pueden cargarse en grupo desde Excel
+  (`.xlsx`, `.xls` o `.csv`) usando la plantilla descargable del panel;
 - administradores y supervisores crean eventos, invitados y códigos;
 - los eventos se pueden editar para corregir nombre, horario, capacidad, notas
   y modalidad antes de que exista actividad;
@@ -47,6 +49,16 @@ modifica la portada pública:
 - los QR se pueden descargar o compartir como PNG;
 - el escáner usa la cámara desde Safari en iOS o Chrome en Android, sin instalar
   una aplicación, e incluye lectura desde una foto como alternativa.
+
+La primera hoja del archivo de invitados debe tener estos encabezados:
+
+| Nombre completo | Contacto | Notas |
+| --- | --- | --- |
+| Obligatorio, 2 a 160 caracteres | Opcional, máximo 160 caracteres | Opcional, máximo 300 caracteres |
+
+Cada fila representa una persona y genera su propio QR. La carga admite hasta
+500 invitados por archivo, valida todas las filas antes de importar y se
+confirma desde una vista previa.
 
 La cámara del navegador requiere que `admin.noxpanama.com` se abra mediante
 **HTTPS**. Si la base de datos ya está creada, importe únicamente:

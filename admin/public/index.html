@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260803-9">
+  <link rel="stylesheet" href="/styles.css?v=20260803-10">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -184,6 +184,41 @@
           </article>
 
           <div id="personal-event-area" class="personal-event-area">
+            <article class="panel guest-import-panel" data-event-manage>
+              <div class="panel-heading">
+                <div><p class="eyebrow">CARGA MASIVA</p><h3>Importar invitados desde Excel</h3></div>
+                <a class="button button--ghost" href="/assets/plantilla-invitados-nox.xlsx" download>Descargar plantilla</a>
+              </div>
+              <div class="guest-import-body">
+                <div class="guest-import-format" aria-label="Formato requerido">
+                  <div><strong>Nombre completo</strong><small>Obligatorio · máximo 160 caracteres</small></div>
+                  <div><strong>Contacto</strong><small>Opcional · teléfono o correo</small></div>
+                  <div><strong>Notas</strong><small>Opcional · máximo 300 caracteres</small></div>
+                </div>
+                <label class="guest-import-file">
+                  <span aria-hidden="true">⇧</span>
+                  <strong>Seleccionar archivo de Excel</strong>
+                  <small id="guest-import-file-name">Formatos admitidos: .xlsx, .xls y .csv · máximo 500 invitados</small>
+                  <input id="guest-import-file" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv">
+                </label>
+                <div id="guest-import-preview" class="guest-import-preview" hidden>
+                  <div class="guest-import-summary">
+                    <strong id="guest-import-summary"></strong>
+                    <button id="clear-guest-import" type="button" class="text-button">Elegir otro archivo</button>
+                  </div>
+                  <div class="table-scroll">
+                    <table>
+                      <thead><tr><th>Fila</th><th>Nombre completo</th><th>Contacto</th><th>Notas</th><th>Validación</th></tr></thead>
+                      <tbody id="guest-import-table"></tbody>
+                    </table>
+                  </div>
+                  <p id="guest-import-errors" class="guest-import-errors" role="status"></p>
+                  <div class="form-actions">
+                    <button id="import-guests-button" type="button" class="button button--primary" disabled>Importar invitados</button>
+                  </div>
+                </div>
+              </div>
+            </article>
             <form id="new-guest-form" class="panel inline-form" data-event-manage>
               <div class="form-intro wide-field"><p class="eyebrow">INVITACIÓN PERSONAL</p><h3>Generar un QR para una persona</h3><p>El código queda invalidado automáticamente después de registrar su primera entrada.</p></div>
               <label>Nombre completo<input name="fullName" maxlength="160" minlength="2" required></label>
@@ -384,6 +419,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260803-17" defer></script>
+  <script src="/app.js?v=20260803-18" defer></script>
 </body>
 </html>
