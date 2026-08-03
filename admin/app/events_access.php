@@ -255,6 +255,81 @@ function events_status_update(array $params)
     json_response(['id' => $eventId, 'status' => $status]);
 }
 
+function events_delete(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin']);
+    $eventId = path_id($params);
+    $confirmation = value_string(request_body(), 'confirmation', 2, 160);
+
+    $result = transaction(function (PDO $pdo) use ($user, $eventId, $confirmation): array {
+        $event = event_row($pdo, $eventId, true);
+        if (!$event) {
+            throw new ApiError('Evento no encontrado.', 404);
+        }
+        if (!hash_equals((string) $event['name'], $confirmation)) {
+            throw new ApiError('El nombre de confirmación no coincide con el evento.', 409);
+        }
+
+        $guestStatement = $pdo->prepare('SELECT id FROM event_guests WHERE event_id = ?');
+        $guestStatement->execute([$eventId]);
+        $guestIds = array_map('intval', $guestStatement->fetchAll(PDO::FETCH_COLUMN));
+
+        $accessWhere = 'event_id = ?';
+        $accessParams = [$eventId];
+        if ($guestIds) {
+            $accessWhere .= ' OR guest_id IN (' . placeholders(count($guestIds)) . ')';
+            $accessParams = array_merge($accessParams, $guestIds);
+        }
+        $accessStatement = $pdo->prepare("SELECT COUNT(*) FROM event_access_log WHERE {$accessWhere}");
+        $accessStatement->execute($accessParams);
+        $accessCount = (int) $accessStatement->fetchColumn();
+
+        $pdo->prepare("DELETE FROM event_access_log WHERE {$accessWhere}")->execute($accessParams);
+
+        if ($guestIds) {
+            $guestAudit = $pdo->prepare(
+                "DELETE FROM audit_log
+                 WHERE entity_type = 'event_guest'
+                   AND entity_id IN (" . placeholders(count($guestIds)) . ')'
+            );
+            $guestAudit->execute($guestIds);
+        }
+        $pdo->prepare(
+            "DELETE FROM audit_log
+             WHERE entity_type = 'event'
+               AND entity_id = ?"
+        )->execute([$eventId]);
+        $pdo->prepare(
+            "DELETE FROM audit_log
+             WHERE entity_type = 'event_guest'
+               AND entity_id IS NULL
+               AND (
+                    JSON_UNQUOTE(JSON_EXTRACT(before_data, '$.eventId')) = ?
+                    OR JSON_UNQUOTE(JSON_EXTRACT(after_data, '$.eventId')) = ?
+               )"
+        )->execute([(string) $eventId, (string) $eventId]);
+
+        $delete = $pdo->prepare('DELETE FROM events WHERE id = ?');
+        $delete->execute([$eventId]);
+        if ($delete->rowCount() !== 1) {
+            throw new ApiError('No fue posible eliminar el evento.', 409);
+        }
+
+        audit_log($pdo, $user, 'delete', 'event_deletion', null, null, [
+            'guestCount' => count($guestIds),
+            'accessCount' => $accessCount,
+        ]);
+        return [
+            'deleted' => true,
+            'guestCount' => count($guestIds),
+            'accessCount' => $accessCount,
+        ];
+    });
+
+    json_response($result);
+}
+
 function event_guest_values(array $body, ?int $rowNumber = null): array
 {
     try {

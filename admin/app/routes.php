@@ -10,6 +10,7 @@ if (function_exists('events_list')) {
     add_route('POST', 'events', 'events_create');
     add_route('GET', 'events/{id}', 'events_detail');
     add_route('PATCH', 'events/{id}', 'events_update');
+    add_route('DELETE', 'events/{id}', 'events_delete');
     add_route('PATCH', 'events/{id}/status', 'events_status_update');
     add_route('POST', 'events/{id}/guests', 'event_guests_create');
     add_route('POST', 'events/{id}/guests/import', 'event_guests_import');

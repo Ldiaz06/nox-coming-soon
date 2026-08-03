@@ -42,6 +42,9 @@ modifica la portada pública:
 - administradores y supervisores crean eventos, invitados y códigos;
 - los eventos se pueden editar para corregir nombre, horario, capacidad, notas
   y modalidad antes de que exista actividad;
+- un administrador puede eliminar definitivamente un evento escribiendo su
+  nombre como confirmación; la operación también borra sus invitados, QR,
+  lecturas de acceso y datos de auditoría asociados;
 - cualquier usuario activo del panel puede operar el escáner de puerta;
 - el botón **Escáner en pantalla completa** abre `/scanner/`, una vista
   exclusiva para el personal de entrada sin el resto de la administración;

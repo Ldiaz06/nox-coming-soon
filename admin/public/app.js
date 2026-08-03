@@ -2015,6 +2015,61 @@ $("#edit-event-form").addEventListener("submit", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
+$("#delete-event").addEventListener("click", () => {
+  const selected = state.selectedEvent;
+  if (!selected || state.user?.role !== "admin") return;
+  const form = $("#delete-event-form");
+  form.reset();
+  form.elements.eventId.value = selected.id;
+  $("#delete-event-name").textContent = selected.name;
+  $("#delete-event-summary").innerHTML = `
+    <div><small>Invitados y QR</small><strong>${state.eventGuests.length}</strong></div>
+    <div><small>Entradas aceptadas</small><strong>${Number(selected.admittedCount || 0)}</strong></div>`;
+  $("#delete-event-error").textContent = "";
+  $("#confirm-delete-event").disabled = true;
+  $("#confirm-delete-event").textContent = "Eliminar definitivamente";
+  $("#delete-event-dialog").showModal();
+  form.elements.confirmation.focus();
+});
+
+$("#delete-event-form [name=confirmation]").addEventListener("input", (event) => {
+  const selected = state.selectedEvent;
+  $("#confirm-delete-event").disabled = !selected || event.currentTarget.value !== selected.name;
+  $("#delete-event-error").textContent = "";
+});
+
+$("#delete-event-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") return $("#delete-event-dialog").close();
+  const form = event.currentTarget;
+  const selected = state.selectedEvent;
+  const values = formValues(form);
+  if (!selected || Number(values.eventId) !== Number(selected.id) || values.confirmation !== selected.name) {
+    $("#delete-event-error").textContent = "Escriba exactamente el nombre del evento para confirmar.";
+    return;
+  }
+  const button = $("#confirm-delete-event");
+  button.disabled = true;
+  button.textContent = "Eliminando…";
+  try {
+    const result = await api(`/api/events/${selected.id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmation: values.confirmation })
+    });
+    $("#delete-event-dialog").close();
+    state.selectedEvent = null;
+    state.eventGuests = [];
+    state.eventAccesses = [];
+    resetGuestImport();
+    await loadEvents();
+    toast(`Evento eliminado junto con ${result.guestCount} invitados y ${result.accessCount} lecturas.`);
+  } catch (error) {
+    $("#delete-event-error").textContent = error.message;
+    button.disabled = form.elements.confirmation.value !== selected.name;
+    button.textContent = "Eliminar definitivamente";
+  }
+});
+
 $("#guest-import-file").addEventListener("change", async (event) => {
   await prepareGuestImport(event.currentTarget.files?.[0]);
 });

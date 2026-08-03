@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260803-10">
+  <link rel="stylesheet" href="/styles.css?v=20260803-11">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -177,6 +177,7 @@
                 <button id="show-event-qr" type="button" class="button button--primary">Ver QR general</button>
                 <button id="edit-event" type="button" class="button button--ghost" data-event-manage>Editar evento</button>
                 <button id="toggle-event-status" type="button" class="button button--ghost" data-event-manage></button>
+                <button id="delete-event" type="button" class="button button--danger" data-roles="admin">Eliminar evento</button>
               </div>
             </div>
             <div id="event-detail-stats" class="event-stats"></div>
@@ -415,10 +416,24 @@
       <div class="form-actions"><button class="button button--primary" value="submit">Guardar cambios</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
     </form>
   </dialog>
+  <dialog id="delete-event-dialog" class="delete-event-dialog">
+    <form method="dialog" id="delete-event-form" class="dialog-form">
+      <div><p class="eyebrow">ACCIÓN IRREVERSIBLE</p><h2>Eliminar evento</h2></div>
+      <p class="delete-event-warning">Se eliminarán permanentemente el evento, sus invitados, todos los QR personales o generales y el historial de lecturas de acceso.</p>
+      <div id="delete-event-summary" class="delete-event-summary"></div>
+      <input name="eventId" type="hidden">
+      <label>Para confirmar, escriba exactamente <strong id="delete-event-name"></strong><input name="confirmation" maxlength="160" autocomplete="off" required></label>
+      <p id="delete-event-error" class="form-error"></p>
+      <div class="form-actions">
+        <button id="confirm-delete-event" class="button button--danger" value="submit" disabled>Eliminar definitivamente</button>
+        <button class="button button--ghost" value="cancel">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260803-18" defer></script>
+  <script src="/app.js?v=20260803-19" defer></script>
 </body>
 </html>
