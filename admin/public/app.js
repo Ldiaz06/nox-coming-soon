@@ -1727,6 +1727,10 @@ function datetimeLocalValue(date) {
   return shifted.toISOString().slice(0, 16);
 }
 
+function eventDateInputValue(value) {
+  return String(value || "").replace(" ", "T").slice(0, 16);
+}
+
 $("#show-new-event").addEventListener("click", () => {
   const form = $("#new-event-form");
   form.reset();
@@ -1781,6 +1785,44 @@ $("#toggle-event-status").addEventListener("click", async (event) => {
   try {
     await api(`/api/events/${selected.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
     toast(status === "active" ? "Evento reactivado." : "Evento cerrado.");
+    await loadEvents();
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#edit-event").addEventListener("click", () => {
+  const selected = state.selectedEvent;
+  if (!selected) return;
+  const form = $("#edit-event-form");
+  form.reset();
+  form.elements.id.value = selected.id;
+  form.elements.name.value = selected.name;
+  form.elements.accessMode.value = selected.accessMode;
+  form.elements.startsAt.value = eventDateInputValue(selected.startsAt);
+  form.elements.endsAt.value = eventDateInputValue(selected.endsAt);
+  form.elements.capacity.value = selected.capacity || "";
+  form.elements.notes.value = selected.notes || "";
+  $("#edit-event-dialog").showModal();
+});
+
+$("#edit-event-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") return $("#edit-event-dialog").close();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  try {
+    await api(`/api/events/${values.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: values.name,
+        accessMode: values.accessMode,
+        startsAt: values.startsAt,
+        endsAt: values.endsAt,
+        capacity: values.capacity ? Number(values.capacity) : null,
+        notes: values.notes || null
+      })
+    });
+    $("#edit-event-dialog").close();
+    toast("Evento actualizado.");
     await loadEvents();
   } catch (error) { toast(error.message, true); }
 });

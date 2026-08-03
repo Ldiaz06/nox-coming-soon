@@ -38,7 +38,11 @@ modifica la portada pública:
 - un evento con **QR por persona** genera una invitación individual y bloquea
   automáticamente su segundo uso;
 - administradores y supervisores crean eventos, invitados y códigos;
+- los eventos se pueden editar para corregir nombre, horario, capacidad, notas
+  y modalidad antes de que exista actividad;
 - cualquier usuario activo del panel puede operar el escáner de puerta;
+- el botón **Escáner en pantalla completa** abre `/scanner/`, una vista
+  exclusiva para el personal de entrada sin el resto de la administración;
 - cada lectura conserva hora, resultado y usuario que la realizó;
 - los QR se pueden descargar o compartir como PNG;
 - el escáner usa la cámara desde Safari en iOS o Chrome en Android, sin instalar

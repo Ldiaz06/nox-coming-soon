@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050504">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>NOX Puerta — Escáner QR</title>
+  <link rel="stylesheet" href="/scanner/scanner.css?v=20260803-1">
+</head>
+<body>
+  <main class="door-shell">
+    <header class="door-header">
+      <a class="door-brand" href="/" aria-label="Volver a NOX Control"><strong>NOX</strong><span>PUERTA</span></a>
+      <div class="operator">
+        <span id="connection-status" class="status-dot">Verificando sesión</span>
+        <strong id="operator-name"></strong>
+      </div>
+      <div class="header-actions">
+        <button id="fullscreen-button" type="button" class="control-button" hidden>Pantalla completa</button>
+        <a class="control-button" href="/">Salir</a>
+      </div>
+    </header>
+
+    <section class="camera-stage" aria-labelledby="scanner-title">
+      <h1 id="scanner-title" class="sr-only">Escáner de entradas QR de NOX</h1>
+      <video id="door-video" playsinline muted aria-label="Cámara para escanear códigos QR"></video>
+      <canvas id="door-canvas" hidden></canvas>
+      <div class="camera-shade" aria-hidden="true"></div>
+      <div class="scan-frame" aria-hidden="true"><span></span></div>
+
+      <div id="camera-intro" class="camera-intro">
+        <div class="intro-mark" aria-hidden="true">⌁</div>
+        <p class="eyebrow">CONTROL DE ACCESO</p>
+        <h2>Escáner de puerta</h2>
+        <p>Abra la cámara y apunte al QR. Retire el código del recuadro antes de leer a la siguiente persona.</p>
+        <button id="start-camera" type="button" class="primary-action" disabled>Abrir cámara</button>
+        <label class="secondary-action photo-action">Tomar foto del QR<input id="door-photo" type="file" accept="image/*" capture="environment" disabled></label>
+      </div>
+
+      <div id="scan-feedback" class="scan-feedback" role="status" aria-live="assertive" hidden>
+        <span id="feedback-icon" aria-hidden="true"></span>
+        <div><strong id="feedback-title"></strong><small id="feedback-detail"></small></div>
+      </div>
+    </section>
+
+    <footer class="door-controls">
+      <div class="camera-state"><span id="camera-indicator"></span><strong id="camera-label">Cámara apagada</strong></div>
+      <div class="door-clock"><strong id="door-time"></strong><span id="door-date"></span></div>
+      <div class="control-actions">
+        <label class="control-button photo-action">Foto<input id="door-photo-footer" type="file" accept="image/*" capture="environment" disabled></label>
+        <button id="stop-camera" type="button" class="control-button" hidden>Detener cámara</button>
+      </div>
+    </footer>
+  </main>
+
+  <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
+  <script src="/scanner/scanner.js?v=20260803-1" defer></script>
+</body>
+</html>

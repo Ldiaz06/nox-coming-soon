@@ -121,6 +121,7 @@
           <div><p class="eyebrow">CONTROL DE ENTRADA</p><h2>Eventos y accesos QR</h2></div>
           <div class="heading-actions">
             <button class="button button--ghost" data-refresh="events">Actualizar</button>
+            <a class="button button--primary" href="/scanner/">Escáner en pantalla completa</a>
             <button id="show-new-event" class="button button--primary" data-event-manage>Crear evento</button>
           </div>
         </div>
@@ -174,6 +175,7 @@
               <div><p id="event-detail-mode" class="eyebrow"></p><h3 id="event-detail-name"></h3></div>
               <div class="heading-actions">
                 <button id="show-event-qr" type="button" class="button button--primary">Ver QR general</button>
+                <button id="edit-event" type="button" class="button button--ghost" data-event-manage>Editar evento</button>
                 <button id="toggle-event-status" type="button" class="button button--ghost" data-event-manage></button>
               </div>
             </div>
@@ -363,10 +365,25 @@
       </div>
     </form>
   </dialog>
+  <dialog id="edit-event-dialog">
+    <form method="dialog" id="edit-event-form" class="dialog-form dialog-form--wide">
+      <div><p class="eyebrow">EVENTOS</p><h2>Editar evento</h2><p class="muted">Los cambios de horario y capacidad se aplican inmediatamente al control de acceso.</p></div>
+      <input name="id" type="hidden">
+      <div class="dialog-grid">
+        <label>Nombre del evento<input name="name" maxlength="160" minlength="2" required></label>
+        <label>Modalidad<select name="accessMode"><option value="shared">Un QR general</option><option value="personal">QR por persona</option></select><small class="field-hint">Solo puede cambiarse antes de crear invitados o registrar entradas.</small></label>
+        <label>Inicio<input name="startsAt" type="datetime-local" required></label>
+        <label>Cierre<input name="endsAt" type="datetime-local" required></label>
+        <label>Capacidad máxima<input name="capacity" type="number" min="1" max="100000" placeholder="Sin límite"></label>
+        <label>Notas<input name="notes" maxlength="500"></label>
+      </div>
+      <div class="form-actions"><button class="button button--primary" value="submit">Guardar cambios</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260803-15" defer></script>
+  <script src="/app.js?v=20260803-16" defer></script>
 </body>
 </html>

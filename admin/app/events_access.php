@@ -162,6 +162,82 @@ function events_create(array $params = [])
     json_response(['id' => $eventId], 201);
 }
 
+function events_update(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $eventId = path_id($params);
+    $body = request_body();
+    if (!$body) {
+        throw new ApiError('Debe enviar al menos un cambio.');
+    }
+    $result = transaction(function (PDO $pdo) use ($user, $eventId, $body): array {
+        $event = event_row($pdo, $eventId, true);
+        if (!$event) {
+            throw new ApiError('Evento no encontrado.', 404);
+        }
+        $name = array_key_exists('name', $body)
+            ? value_string($body, 'name', 2, 160)
+            : $event['name'];
+        $accessMode = array_key_exists('accessMode', $body)
+            ? require_choice($body['accessMode'], ['shared', 'personal'], 'accessMode')
+            : $event['accessMode'];
+        $startsAt = array_key_exists('startsAt', $body)
+            ? event_datetime($body, 'startsAt')
+            : $event['startsAt'];
+        $endsAt = array_key_exists('endsAt', $body)
+            ? event_datetime($body, 'endsAt')
+            : $event['endsAt'];
+        $capacity = array_key_exists('capacity', $body)
+            ? event_optional_capacity($body)
+            : ($event['capacity'] !== null ? (int) $event['capacity'] : null);
+        $notes = array_key_exists('notes', $body)
+            ? value_string($body, 'notes', 0, 500, false)
+            : $event['notes'];
+        if ($endsAt <= $startsAt) {
+            throw new ApiError('La hora de cierre debe ser posterior a la hora de inicio.');
+        }
+
+        $sharedToken = $event['sharedQrToken'];
+        if ($accessMode !== $event['accessMode']) {
+            $history = $pdo->prepare(
+                'SELECT
+                    (SELECT COUNT(*) FROM event_guests WHERE event_id = ?) +
+                    (SELECT COUNT(*) FROM event_access_log WHERE event_id = ?)'
+            );
+            $history->execute([$eventId, $eventId]);
+            if ((int) $history->fetchColumn() > 0) {
+                throw new ApiError('La modalidad no puede cambiarse porque el evento ya tiene invitados o lecturas.', 409);
+            }
+            $sharedToken = $accessMode === 'shared' ? event_access_token('E') : null;
+        }
+
+        $pdo->prepare(
+            'UPDATE events
+             SET name = ?, access_mode = ?, starts_at = ?, ends_at = ?, capacity = ?, notes = ?, shared_qr_token = ?
+             WHERE id = ?'
+        )->execute([$name, $accessMode, $startsAt, $endsAt, $capacity, $notes, $sharedToken, $eventId]);
+        $after = [
+            'name' => $name,
+            'accessMode' => $accessMode,
+            'startsAt' => $startsAt,
+            'endsAt' => $endsAt,
+            'capacity' => $capacity,
+            'notes' => $notes,
+        ];
+        audit_log($pdo, $user, 'update', 'event', $eventId, [
+            'name' => $event['name'],
+            'accessMode' => $event['accessMode'],
+            'startsAt' => $event['startsAt'],
+            'endsAt' => $event['endsAt'],
+            'capacity' => $event['capacity'],
+            'notes' => $event['notes'],
+        ], $after);
+        return ['id' => $eventId] + $after;
+    });
+    json_response($result);
+}
+
 function events_status_update(array $params)
 {
     require_csrf();

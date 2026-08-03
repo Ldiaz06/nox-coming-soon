@@ -22,7 +22,14 @@ if (PHP_VERSION_ID < 70400) {
 
 require_once dirname(__DIR__) . '/app/bootstrap.php';
 require_once dirname(__DIR__) . '/app/auth_users.php';
-require_once dirname(__DIR__) . '/app/events_access.php';
+$eventsAccessModule = dirname(__DIR__) . '/app/events_access.php';
+if (is_file($eventsAccessModule)) {
+    try {
+        require_once $eventsAccessModule;
+    } catch (Throwable $error) {
+        error_log('NOX events module could not be loaded: ' . $error->__toString());
+    }
+}
 require_once dirname(__DIR__) . '/app/inventory_pos.php';
 require_once dirname(__DIR__) . '/app/operations.php';
 require_once dirname(__DIR__) . '/app/workforce_payroll.php';
