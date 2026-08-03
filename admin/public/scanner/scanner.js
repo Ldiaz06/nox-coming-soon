@@ -64,34 +64,43 @@ function setCameraState(live) {
 
 function showFeedback(result) {
   const feedback = $("#scan-feedback");
-  clearTimeout(doorState.feedbackTimer);
-  feedback.classList.remove("is-granted", "is-denied", "is-duplicate");
-  feedback.classList.add(result.granted ? "is-granted" : result.decision === "duplicate" ? "is-duplicate" : "is-denied");
-  $("#feedback-icon").textContent = result.granted ? "✓" : result.decision === "duplicate" ? "!" : "×";
-  $("#feedback-title").textContent = result.granted
-    ? (result.guest ? `Bienvenido, ${result.guest.name}` : "Asistencia registrada")
-    : result.message;
-  $("#feedback-detail").textContent = result.event
+  const granted = Boolean(result.granted);
+  const duration = granted ? 2800 : 4200;
+  const eventDetail = result.event?.name
     ? `${result.event.name}${result.admittedCount ? ` · ${result.admittedCount} entradas` : ""}`
-    : "Revise el código e intente nuevamente.";
+    : "";
+  clearTimeout(doorState.feedbackTimer);
+  feedback.hidden = true;
+  feedback.classList.remove("is-granted", "is-denied", "is-duplicate");
+  void feedback.offsetWidth;
+  feedback.classList.add(granted ? "is-granted" : result.decision === "duplicate" ? "is-duplicate" : "is-denied");
+  $("#feedback-icon").textContent = granted ? "✓" : "×";
+  $("#feedback-title").textContent = granted
+    ? (result.guest?.name ? `¡Bienvenido, ${result.guest.name}!` : "ENTRADA AUTORIZADA")
+    : "ACCESO DENEGADO";
+  $("#feedback-detail").textContent = granted
+    ? (eventDetail || "Ingreso registrado correctamente.")
+    : `${result.message || "Entrada no autorizada."}${eventDetail ? ` · ${eventDetail}` : ""}`;
   feedback.hidden = false;
-  doorState.feedbackTimer = window.setTimeout(() => { feedback.hidden = true; }, result.granted ? 2600 : 4200);
+  doorState.feedbackTimer = window.setTimeout(() => { feedback.hidden = true; }, duration);
+  return duration;
 }
 
 async function submitToken(token) {
   if (doorState.locked) return;
   doorState.locked = true;
+  let cooldown = 4200;
   try {
     const result = await doorApi("/api/access/scan", {
       method: "POST",
       body: JSON.stringify({ token })
     });
-    showFeedback(result);
+    cooldown = showFeedback(result);
     if (navigator.vibrate) navigator.vibrate(result.granted ? 90 : [70, 45, 70]);
   } catch (error) {
-    showFeedback({ granted: false, decision: "denied", message: error.message });
+    cooldown = showFeedback({ granted: false, decision: "denied", message: error.message });
   } finally {
-    window.setTimeout(() => { doorState.locked = false; }, 1300);
+    window.setTimeout(() => { doorState.locked = false; }, cooldown);
   }
 }
 

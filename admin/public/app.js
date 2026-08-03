@@ -512,16 +512,21 @@ function qrBlob() {
 
 function setScanResult(result) {
   const element = $("#scan-result");
-  element.classList.remove("is-granted", "is-denied", "is-duplicate");
-  const className = result.granted ? "is-granted" : result.decision === "duplicate" ? "is-duplicate" : "is-denied";
-  element.classList.add(className);
-  const title = result.granted
-    ? (result.guest ? `Bienvenido, ${result.guest.name}` : "Asistencia registrada")
-    : result.message;
-  const detail = result.event
+  const granted = Boolean(result.granted);
+  const eventDetail = result.event?.name
     ? `${result.event.name}${result.admittedCount ? ` · ${result.admittedCount} entradas` : ""}`
-    : "Revise el código e intente nuevamente.";
-  element.innerHTML = `<span aria-hidden="true">${result.granted ? "✓" : result.decision === "duplicate" ? "!" : "×"}</span><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></div>`;
+    : "";
+  element.classList.remove("is-granted", "is-denied", "is-duplicate");
+  const className = granted ? "is-granted" : result.decision === "duplicate" ? "is-duplicate" : "is-denied";
+  const title = granted
+    ? (result.guest?.name ? `¡Bienvenido, ${result.guest.name}!` : "Entrada autorizada")
+    : "ACCESO DENEGADO";
+  const detail = granted
+    ? (eventDetail || "Ingreso registrado correctamente.")
+    : `${result.message || "Entrada no autorizada."}${eventDetail ? ` · ${eventDetail}` : ""}`;
+  element.innerHTML = `<span aria-hidden="true">${granted ? "✓" : "×"}</span><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></div>`;
+  void element.offsetWidth;
+  element.classList.add(className);
 }
 
 async function submitAccessToken(token) {
