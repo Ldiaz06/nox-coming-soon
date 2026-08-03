@@ -277,6 +277,73 @@ function inventory_item_create(array $params = [])
     json_response(['id' => $id], 201);
 }
 
+function inventory_item_update(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $itemId = path_id($params);
+    $body = request_body();
+    $sku = value_string($body, 'sku', 1, 80) ?? '';
+    $name = value_string($body, 'name', 2, 180) ?? '';
+    $category = value_string($body, 'category', 2, 100) ?? '';
+    $unit = require_choice(
+        $body['unit'] ?? '',
+        ['unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg'],
+        'unit'
+    );
+    $minimum = value_number($body, 'minimumStock', 0);
+    $leadTimeDays = (int) round(value_number($body, 'leadTimeDays', 0, 365));
+    $safetyStockDays = (int) round(value_number($body, 'safetyStockDays', 0, 365));
+    $targetStockDays = (int) round(value_number($body, 'targetStockDays', 1, 730));
+    if ($targetStockDays <= $leadTimeDays + $safetyStockDays) {
+        throw new ApiError('La cobertura objetivo debe superar el tiempo de entrega más los días de seguridad.');
+    }
+
+    try {
+        transaction(function (PDO $pdo) use ($user, $itemId, $sku, $name, $category, $unit, $minimum, $leadTimeDays, $safetyStockDays, $targetStockDays): void {
+            $statement = $pdo->prepare(
+                'SELECT id, sku, name, category, unit, minimum_stock AS minimumStock,
+                        lead_time_days AS leadTimeDays, safety_stock_days AS safetyStockDays,
+                        target_stock_days AS targetStockDays, current_stock AS currentStock,
+                        reserved_stock AS reservedStock
+                 FROM inventory_items WHERE id = ? FOR UPDATE'
+            );
+            $statement->execute([$itemId]);
+            $before = $statement->fetch();
+            if (!$before) throw new ApiError('Artículo no encontrado.', 404);
+            if ($before['unit'] !== $unit) {
+                if (abs((float) $before['currentStock']) > 0.000001 || abs((float) $before['reservedStock']) > 0.000001) {
+                    throw new ApiError('No se puede cambiar la unidad mientras el artículo tenga existencias o reservas.', 409);
+                }
+                $history = $pdo->prepare(
+                    'SELECT EXISTS(SELECT 1 FROM inventory_movements WHERE inventory_item_id = ?)
+                            OR EXISTS(SELECT 1 FROM purchase_items WHERE inventory_item_id = ?)
+                            OR EXISTS(SELECT 1 FROM product_recipes WHERE inventory_item_id = ?)'
+                );
+                $history->execute([$itemId, $itemId, $itemId]);
+                if ((int) $history->fetchColumn() === 1) {
+                    throw new ApiError('No se puede cambiar la unidad porque el artículo ya tiene compras, movimientos o recetas.', 409);
+                }
+            }
+            $pdo->prepare(
+                'UPDATE inventory_items
+                 SET sku = ?, name = ?, category = ?, unit = ?, minimum_stock = ?,
+                     lead_time_days = ?, safety_stock_days = ?, target_stock_days = ?
+                 WHERE id = ?'
+            )->execute([$sku, $name, $category, $unit, $minimum, $leadTimeDays, $safetyStockDays, $targetStockDays, $itemId]);
+            audit_log($pdo, $user, 'update', 'inventory_item', $itemId, $before, [
+                'sku' => $sku, 'name' => $name, 'category' => $category, 'unit' => $unit,
+                'minimumStock' => $minimum, 'leadTimeDays' => $leadTimeDays,
+                'safetyStockDays' => $safetyStockDays, 'targetStockDays' => $targetStockDays,
+            ]);
+        });
+    } catch (PDOException $error) {
+        if ((string) $error->getCode() === '23000') throw new ApiError('El SKU ya existe.', 409);
+        throw $error;
+    }
+    json_response(['id' => $itemId]);
+}
+
 function inventory_product_create(array $params = [])
 {
     require_csrf();
@@ -290,6 +357,10 @@ function inventory_product_create(array $params = [])
     $targetMargin = isset($body['targetMargin'])
         ? value_number($body, 'targetMargin', 0.10, 0.95)
         : 0.70;
+    $active = isset($body['active'])
+        ? filter_var($body['active'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+        : true;
+    if ($active === null) throw new ApiError('El estado del producto no es válido.');
     $barcode = value_string($body, 'barcode', 0, 120, false);
     $recipe = $body['recipe'] ?? null;
     if (!is_array($recipe) || count($recipe) < 1 || count($recipe) > 100) {
@@ -307,7 +378,7 @@ function inventory_product_create(array $params = [])
     }
 
     try {
-        $result = transaction(function (PDO $pdo) use ($user, $sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $normalizedRecipe): array {
+        $result = transaction(function (PDO $pdo) use ($user, $sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $active, $normalizedRecipe): array {
             $ids = array_keys($normalizedRecipe);
             $statement = $pdo->prepare('SELECT id, average_cost FROM inventory_items WHERE active = TRUE AND id IN (' . placeholders(count($ids)) . ')');
             $statement->execute($ids);
@@ -326,10 +397,10 @@ function inventory_product_create(array $params = [])
             $recipeCost = money_round($recipeCost);
             $suggestedPrice = suggested_product_price($recipeCost, $targetMargin);
             $product = $pdo->prepare(
-                'INSERT INTO products (sku, barcode, name, category, sale_price, tax_rate, target_margin)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO products (sku, barcode, name, category, sale_price, tax_rate, target_margin, active)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $product->execute([$sku, $barcode, $name, $category, $price, $taxRate, $targetMargin]);
+            $product->execute([$sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $active ? 1 : 0]);
             $id = (int) $pdo->lastInsertId();
             $recipeInsert = $pdo->prepare('INSERT INTO product_recipes (product_id, inventory_item_id, quantity) VALUES (?, ?, ?)');
             foreach ($normalizedRecipe as $itemId => $quantity) {
@@ -337,7 +408,8 @@ function inventory_product_create(array $params = [])
             }
             audit_log($pdo, $user, 'create', 'product', $id, null, [
                 'sku' => $sku, 'name' => $name, 'salePrice' => $price,
-                'targetMargin' => $targetMargin, 'recipeCost' => $recipeCost,
+                'targetMargin' => $targetMargin, 'active' => $active,
+                'recipeCost' => $recipeCost,
                 'suggestedPrice' => $suggestedPrice, 'recipe' => $normalizedRecipe,
             ]);
             return [
@@ -355,6 +427,95 @@ function inventory_product_create(array $params = [])
         throw $error;
     }
     json_response($result, 201);
+}
+
+function inventory_product_update(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $productId = path_id($params);
+    $body = request_body();
+    $sku = value_string($body, 'sku', 1, 80) ?? '';
+    $name = value_string($body, 'name', 2, 180) ?? '';
+    $category = value_string($body, 'category', 2, 100) ?? '';
+    $price = value_number($body, 'salePrice', 0);
+    $taxRate = value_number($body, 'taxRate', 0, 1);
+    $targetMargin = value_number($body, 'targetMargin', 0.10, 0.95);
+    $barcode = value_string($body, 'barcode', 0, 120, false);
+    $active = filter_var($body['active'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    if ($active === null) throw new ApiError('El estado del producto no es válido.');
+    $recipe = $body['recipe'] ?? null;
+    if (!is_array($recipe) || count($recipe) < 1 || count($recipe) > 100) {
+        throw new ApiError('La receta debe tener al menos un ingrediente.');
+    }
+    $normalizedRecipe = [];
+    foreach ($recipe as $component) {
+        if (!is_array($component)) throw new ApiError('La receta no es válida.');
+        $itemId = value_id($component, 'itemId');
+        $quantity = value_number($component, 'quantity', 0.0001);
+        $normalizedRecipe[$itemId] = ($normalizedRecipe[$itemId] ?? 0) + $quantity;
+    }
+
+    try {
+        $result = transaction(function (PDO $pdo) use ($user, $productId, $sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $active, $normalizedRecipe): array {
+            $product = $pdo->prepare(
+                'SELECT id, sku, barcode, name, category, sale_price AS salePrice,
+                        tax_rate AS taxRate, target_margin AS targetMargin, active
+                 FROM products WHERE id = ? FOR UPDATE'
+            );
+            $product->execute([$productId]);
+            $before = $product->fetch();
+            if (!$before) throw new ApiError('Producto no encontrado.', 404);
+            $openTabs = $pdo->prepare(
+                "SELECT COUNT(*)
+                 FROM customer_tab_items item
+                 JOIN customer_tabs tab ON tab.id = item.tab_id
+                 WHERE item.product_id = ? AND tab.status = 'open'"
+            );
+            $openTabs->execute([$productId]);
+            if ((int) $openTabs->fetchColumn() > 0) {
+                throw new ApiError('El producto está cargado en una cuenta abierta. Cóbrela o retire el producto antes de editarlo.', 409);
+            }
+            $ids = array_keys($normalizedRecipe);
+            $items = $pdo->prepare(
+                'SELECT id, average_cost FROM inventory_items
+                 WHERE active = TRUE AND id IN (' . placeholders(count($ids)) . ')'
+            );
+            $items->execute($ids);
+            $itemRows = $items->fetchAll();
+            if (count($itemRows) !== count($ids)) throw new ApiError('La receta contiene artículos inválidos.');
+            $costs = [];
+            foreach ($itemRows as $itemRow) $costs[(int) $itemRow['id']] = (float) $itemRow['average_cost'];
+            $recipeCost = 0.0;
+            foreach ($normalizedRecipe as $itemId => $quantity) $recipeCost += $quantity * $costs[$itemId];
+            $recipeCost = money_round($recipeCost);
+            $suggestedPrice = suggested_product_price($recipeCost, $targetMargin);
+            $pdo->prepare(
+                'UPDATE products
+                 SET sku = ?, barcode = ?, name = ?, category = ?, sale_price = ?,
+                     tax_rate = ?, target_margin = ?, active = ?
+                 WHERE id = ?'
+            )->execute([$sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $active ? 1 : 0, $productId]);
+            $pdo->prepare('DELETE FROM product_recipes WHERE product_id = ?')->execute([$productId]);
+            $insert = $pdo->prepare('INSERT INTO product_recipes (product_id, inventory_item_id, quantity) VALUES (?, ?, ?)');
+            foreach ($normalizedRecipe as $itemId => $quantity) $insert->execute([$productId, $itemId, $quantity]);
+            audit_log($pdo, $user, 'update', 'product', $productId, $before, [
+                'sku' => $sku, 'barcode' => $barcode, 'name' => $name, 'category' => $category,
+                'salePrice' => $price, 'taxRate' => $taxRate, 'targetMargin' => $targetMargin,
+                'active' => $active, 'recipeCost' => $recipeCost, 'recipe' => $normalizedRecipe,
+            ]);
+            return [
+                'id' => $productId, 'recipeCost' => $recipeCost,
+                'suggestedPrice' => $suggestedPrice,
+                'unitGrossProfit' => money_round($price - $recipeCost),
+                'grossMargin' => $price > 0 ? round(($price - $recipeCost) / $price, 4) : 0.0,
+            ];
+        });
+    } catch (PDOException $error) {
+        if ((string) $error->getCode() === '23000') throw new ApiError('El SKU o código de barras ya existe.', 409);
+        throw $error;
+    }
+    json_response($result);
 }
 
 function inventory_product_image_upload(array $params = [])

@@ -37,6 +37,7 @@ limpiar una cuenta se liberan; al cobrar se convierten en salida definitiva sin
 descontar dos veces. Una venta rápida se cobra sin dejar una cuenta pendiente.
 - Acceso mediante nombre de usuario, sin correo obligatorio.
 - Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
+- Artículos y productos editables sin alterar compras, movimientos ni ventas históricas.
 - Inventario conectado a recetas y ventas.
 - Precio de venta sugerido según el costo actual de la receta y el margen bruto objetivo.
 - Análisis de rentabilidad por producto, merma valorada y planificación de reposición.
@@ -57,7 +58,7 @@ descontar dos veces. Una venta rápida se cobra sin dejar una cuenta pendiente.
 La administración mantiene estos flujos en menús independientes:
 
 - **Artículos:** creación del catálogo físico y sus unidades de control;
-- **Productos:** creación del catálogo del POS, recetas, costos y márgenes;
+- **Productos:** creación y edición del catálogo del POS, recetas, costos, estados y márgenes;
 - **Inventario:** compras, presentaciones, precios, existencias,
   conteos, ajustes y mermas.
 

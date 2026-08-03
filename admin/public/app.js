@@ -605,7 +605,7 @@ function renderInventory() {
       <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
       <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>Promedio ponderado de compras recibidas.</small></td>
       <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
-      <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button></td>
+      <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button> <button class="table-action" data-edit-inventory-id="${item.id}">Editar</button></td>
     </tr>`;
   }).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos físicos con esta búsqueda.</td></tr>';
 }
@@ -621,8 +621,8 @@ function renderInventoryProducts() {
     const margin = Number(product.grossMargin || 0);
     const target = Number(product.targetMargin || 0);
     const hasCustomPhoto = product.imageUrl && product.imageUrl !== DEFAULT_PRODUCT_IMAGE;
-    return `<tr><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell"><img class="product-thumb" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async"><div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${hasCustomPhoto ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td></tr>`;
-  }).join("") || '<tr><td colspan="9" class="empty-state">No hay productos de venta registrados.</td></tr>';
+    return `<tr><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell"><img class="product-thumb" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async"><div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${hasCustomPhoto ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td><td><button type="button" class="table-action" data-edit-product="${product.id}">Editar</button></td></tr>`;
+  }).join("") || '<tr><td colspan="10" class="empty-state">No hay productos de venta registrados.</td></tr>';
 }
 
 function renderArticles() {
@@ -636,7 +636,8 @@ function renderArticles() {
     <td>${escapeHtml(unitNames[item.unit] || item.unit)}</td>
     <td>${item.referencePackageName ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small>` : '<span class="badge">Sin compras</span>'}</td>
     <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
-  </tr>`).join("") || '<tr><td colspan="6" class="empty-state">No hay artículos con este filtro.</td></tr>';
+    <td><button type="button" class="table-action" data-edit-item="${item.id}">Editar</button></td>
+  </tr>`).join("") || '<tr><td colspan="7" class="empty-state">No hay artículos con este filtro.</td></tr>';
 }
 
 function inventoryOptions() {
@@ -697,7 +698,7 @@ function updateInventoryRow(row, kind, resetPresentation = false) {
   hint.textContent = `1 ${packageName} agrega ${quantityNumber.format(unitsPerPackage)} ${unit} al inventario.${reference}`;
 }
 
-function addRecipeRow(kind) {
+function addRecipeRow(kind, values = null) {
   const container = kind === "recipe" ? $("#recipe-rows") : $("#purchase-rows");
   const row = document.createElement("div");
   row.className = `recipe-row recipe-row--${kind}`;
@@ -706,6 +707,12 @@ function addRecipeRow(kind) {
     : `<label>Artículo físico<select name="itemId" required>${inventoryOptions()}</select><small class="field-hint" data-conversion-hint></small></label><label>Presentación recibida<select name="packageName" required>${purchasePackageOptions()}</select><input name="packageNameCustom" class="inline-custom-input" maxlength="80" placeholder="Nombre de la nueva presentación" hidden></label><label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" step="0.0001" required></label><label>Cantidad de presentaciones<input name="packageQuantity" type="number" min="1" step="1" inputmode="numeric" required></label><label>Precio pagado por presentación<input name="packageCost" type="number" min="0" step="0.0001" required></label><button type="button" class="text-button" data-remove-row>Eliminar</button>`;
   container.append(row);
   updateInventoryRow(row, kind, true);
+  if (values) {
+    const itemSelect = $("[name=itemId]", row);
+    itemSelect.value = String(values.itemId);
+    if ($("[name=quantity]", row)) $("[name=quantity]", row).value = Number(values.quantity);
+    updateInventoryRow(row, kind);
+  }
   if (kind === "recipe") updateProductPricingPreview();
 }
 
@@ -849,6 +856,58 @@ function openInventoryForm(id) {
   ["new-item-form", "new-product-form", "purchase-form"].forEach((formId) => {
     document.getElementById(formId).hidden = formId !== id;
   });
+}
+
+function prepareItemForm(item = null) {
+  const form = $("#new-item-form");
+  form.reset();
+  refreshCategoryCatalogs();
+  form.elements.recordId.value = item?.id || "";
+  $("#item-form-eyebrow").textContent = item ? "EDITAR ARTÍCULO" : "NUEVO ARTÍCULO";
+  $("#item-form-title").textContent = item ? `Actualizar ${item.name}` : "Definir el artículo y su unidad de control";
+  $("#item-form-submit").textContent = item ? "Guardar cambios" : "Guardar artículo físico";
+  if (item) {
+    form.elements.sku.value = item.sku;
+    form.elements.name.value = item.name;
+    form.elements.category.value = item.category;
+    form.elements.unit.value = item.unit;
+    form.elements.minimumStock.value = Number(item.minimumStock || 0);
+    form.elements.leadTimeDays.value = Number(item.leadTimeDays || 0);
+    form.elements.safetyStockDays.value = Number(item.safetyStockDays || 0);
+    form.elements.targetStockDays.value = Number(item.targetStockDays || 14);
+  }
+  toggleNewCategory($("#item-category-input"), $("#item-new-category-field"));
+  openInventoryForm("new-item-form");
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function prepareProductForm(product = null) {
+  const form = $("#new-product-form");
+  form.reset();
+  refreshCategoryCatalogs();
+  form.elements.recordId.value = product?.id || "";
+  form.elements.active.value = product ? String(Number(product.active) === 1 ? 1 : 0) : "1";
+  $("#product-form-eyebrow").textContent = product ? "EDITAR PRODUCTO" : "NUEVO PRODUCTO";
+  $("#product-form-title").textContent = product ? `Actualizar ${product.name}` : "Definir composición para el POS";
+  $("#product-form-submit").textContent = product ? "Guardar cambios" : "Guardar producto de venta";
+  setImagePreview(form.elements.image, $("#product-image-preview"));
+  $("#recipe-rows").replaceChildren();
+  if (product) {
+    form.elements.sku.value = product.sku;
+    form.elements.name.value = product.name;
+    form.elements.category.value = product.category;
+    form.elements.barcode.value = product.barcode || "";
+    form.elements.salePrice.value = Number(product.salePrice);
+    form.elements.targetMargin.value = Number(product.targetMargin || .7) * 100;
+    form.elements.taxRate.value = Number(product.taxRate || 0) * 100;
+    product.recipe.forEach((component) => addRecipeRow("recipe", component));
+  } else {
+    addRecipeRow("recipe");
+  }
+  toggleNewCategory($("#product-category-input"), $("#product-new-category-field"));
+  openInventoryForm("new-product-form");
+  updateProductPricingPreview();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function loadInsights(event) {
@@ -1084,8 +1143,8 @@ $("#payment-methods").addEventListener("click", (event) => {
   if (method === "cash") $("#payment-reference").value = "";
 });
 
-$("#show-new-item").addEventListener("click", () => { const form = $("#new-item-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#item-category-input"), $("#item-new-category-field")); openInventoryForm("new-item-form"); });
-$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); const form = $("#new-product-form"); form.reset(); refreshCategoryCatalogs(); toggleNewCategory($("#product-category-input"), $("#product-new-category-field")); setImagePreview(form.elements.image, $("#product-image-preview")); openInventoryForm("new-product-form"); $("#recipe-rows").replaceChildren(); addRecipeRow("recipe"); updateProductPricingPreview(); });
+$("#show-new-item").addEventListener("click", () => prepareItemForm());
+$("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); prepareProductForm(); });
 $("#show-purchase").addEventListener("click", () => {
   if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true);
   const form = $("#purchase-form");
@@ -1121,8 +1180,70 @@ $("#product-category-input").addEventListener("change", () => toggleNewCategory(
 $("#new-product-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-preview")));
 $("#new-product-form").addEventListener("input", updateProductPricingPreview);
 $$('[data-cancel-form]').forEach((button) => button.addEventListener("click", () => { const form = document.getElementById(button.dataset.cancelForm); form.hidden = true; form.reset(); if (form.id === "new-product-form") setImagePreview(form.elements.image, $("#product-image-preview")); }));
-$("#new-item-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/items", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), unit: values.unit, minimumStock: Number(values.minimumStock || 0), leadTimeDays: Number(values.leadTimeDays || 0), safetyStockDays: Number(values.safetyStockDays || 0), targetStockDays: Number(values.targetStockDays || 14) }) }); form.reset(); form.hidden = true; state.catalogReady = false; state.pagination.articles.page = 1; toast("Artículo físico creado. Registre su existencia mediante una compra."); await loadInventory(); } catch (error) { toast(error.message, true); } });
-$("#new-product-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = formValues(form); const image = form.elements.image.files?.[0]; try { const result = await api("/api/inventory/products", { method: "POST", body: JSON.stringify({ sku: values.sku, name: values.name, category: categoryFromForm(form), barcode: values.barcode || null, salePrice: Number(values.salePrice), targetMargin: Number(values.targetMargin || 70) / 100, taxRate: Number(values.taxRate || 0) / 100, recipe: collectRows("#recipe-rows") }) }); if (image) { try { await uploadProductImage(result.id, image); } catch (uploadError) { toast(`Producto creado con la imagen predeterminada; la foto seleccionada no se guardó: ${uploadError.message}`, true); await loadInventory(); return; } } form.reset(); form.hidden = true; setImagePreview(form.elements.image, $("#product-image-preview")); toast(`Producto creado · precio sugerido ${money.format(result.suggestedPrice)}.`); await loadInventory(); } catch (error) { toast(error.message, true); } });
+$("#new-item-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  const itemId = Number(values.recordId || 0);
+  try {
+    await api(itemId ? `/api/inventory/items/${itemId}` : "/api/inventory/items", {
+      method: itemId ? "PATCH" : "POST",
+      body: JSON.stringify({
+        sku: values.sku,
+        name: values.name,
+        category: categoryFromForm(form),
+        unit: values.unit,
+        minimumStock: Number(values.minimumStock || 0),
+        leadTimeDays: Number(values.leadTimeDays || 0),
+        safetyStockDays: Number(values.safetyStockDays || 0),
+        targetStockDays: Number(values.targetStockDays || 14)
+      })
+    });
+    form.reset();
+    form.hidden = true;
+    state.catalogReady = false;
+    if (!itemId) state.pagination.articles.page = 1;
+    toast(itemId ? "Artículo actualizado." : "Artículo físico creado. Registre su existencia mediante una compra.");
+    await loadInventory();
+  } catch (error) { toast(error.message, true); }
+});
+$("#new-product-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  const productId = Number(values.recordId || 0);
+  const image = form.elements.image.files?.[0];
+  try {
+    const result = await api(productId ? `/api/inventory/products/${productId}` : "/api/inventory/products", {
+      method: productId ? "PATCH" : "POST",
+      body: JSON.stringify({
+        sku: values.sku,
+        name: values.name,
+        category: categoryFromForm(form),
+        barcode: values.barcode || null,
+        salePrice: Number(values.salePrice),
+        targetMargin: Number(values.targetMargin || 70) / 100,
+        taxRate: Number(values.taxRate || 0) / 100,
+        active: values.active === "1",
+        recipe: collectRows("#recipe-rows")
+      })
+    });
+    if (image) {
+      try {
+        await uploadProductImage(result.id, image);
+      } catch (uploadError) {
+        toast(`Los datos se guardaron, pero la fotografía no se actualizó: ${uploadError.message}`, true);
+        await loadInventory();
+        return;
+      }
+    }
+    form.reset();
+    form.hidden = true;
+    setImagePreview(form.elements.image, $("#product-image-preview"));
+    toast(`${productId ? "Producto actualizado" : "Producto creado"} · precio sugerido ${money.format(result.suggestedPrice)}.`);
+    await loadInventory();
+  } catch (error) { toast(error.message, true); }
+});
 $("#purchase-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1161,8 +1282,47 @@ bindPagination("inventory-pagination", "inventory", loadInventoryPage);
 bindPagination("articles-pagination", "articles", loadArticlesPage);
 bindPagination("products-pagination", "products", loadProductsPage);
 $$("[data-go-inventory]").forEach((button) => button.addEventListener("click", () => navigate("inventory")));
-$("#inventory-table").addEventListener("click", (event) => { const button = event.target.closest("[data-adjust-id]"); if (!button) return; const item = state.inventoryRows.find((row) => Number(row.id) === Number(button.dataset.adjustId)); if (!item) return; $("#adjust-form [name=itemId]").value = item.id; $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`; $("#adjust-dialog").showModal(); });
-$("#inventory-products-table").addEventListener("click", (event) => { const button = event.target.closest("[data-product-image-id]"); if (!button) return; const product = state.inventoryProducts.find((row) => Number(row.id) === Number(button.dataset.productImageId)); if (!product) return; const form = $("#product-image-form"); form.reset(); form.elements.productId.value = product.id; $("#product-image-name").textContent = product.name; setImagePreview(form.elements.image, $("#product-image-dialog-preview")); $("#product-image-dialog").showModal(); });
+$("#inventory-table").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-inventory-id]");
+  if (editButton) {
+    const item = state.inventoryRows.find((row) => Number(row.id) === Number(editButton.dataset.editInventoryId));
+    if (!item) return;
+    await navigate("articles");
+    prepareItemForm(item);
+    return;
+  }
+  const adjustButton = event.target.closest("[data-adjust-id]");
+  if (!adjustButton) return;
+  const item = state.inventoryRows.find((row) => Number(row.id) === Number(adjustButton.dataset.adjustId));
+  if (!item) return;
+  $("#adjust-form [name=itemId]").value = item.id;
+  $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`;
+  $("#adjust-dialog").showModal();
+});
+$("#articles-table").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-edit-item]");
+  if (!button) return;
+  const item = state.articleRows.find((row) => Number(row.id) === Number(button.dataset.editItem));
+  if (item) prepareItemForm(item);
+});
+$("#inventory-products-table").addEventListener("click", (event) => {
+  const editButton = event.target.closest("[data-edit-product]");
+  if (editButton) {
+    const product = state.inventoryProducts.find((row) => Number(row.id) === Number(editButton.dataset.editProduct));
+    if (product) prepareProductForm(product);
+    return;
+  }
+  const imageButton = event.target.closest("[data-product-image-id]");
+  if (!imageButton) return;
+  const product = state.inventoryProducts.find((row) => Number(row.id) === Number(imageButton.dataset.productImageId));
+  if (!product) return;
+  const form = $("#product-image-form");
+  form.reset();
+  form.elements.productId.value = product.id;
+  $("#product-image-name").textContent = product.name;
+  setImagePreview(form.elements.image, $("#product-image-dialog-preview"));
+  $("#product-image-dialog").showModal();
+});
 $("#product-image-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-dialog-preview")));
 $("#product-image-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#product-image-dialog").close(); const form = event.currentTarget; const image = form.elements.image.files?.[0]; if (!image) return toast("Seleccione una fotografía.", true); try { await uploadProductImage(Number(form.elements.productId.value), image); $("#product-image-dialog").close(); form.reset(); setImagePreview(form.elements.image, $("#product-image-dialog-preview")); toast("Fotografía del producto actualizada."); await loadInventory(); } catch (error) { toast(error.message, true); } });
 $("#adjust-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#adjust-dialog").close(); const form = event.currentTarget; const values = formValues(form); try { await api("/api/inventory/movements", { method: "POST", body: JSON.stringify({ itemId: Number(values.itemId), type: values.type, quantity: Number(values.quantity), notes: values.notes }) }); $("#adjust-dialog").close(); form.reset(); state.catalogReady = false; toast("Inventario actualizado."); await loadInventory(); } catch (error) { toast(error.message, true); } });
