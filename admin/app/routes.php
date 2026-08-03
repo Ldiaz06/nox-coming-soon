@@ -5,6 +5,15 @@ add_route('POST', 'auth/login', 'auth_login');
 add_route('POST', 'auth/logout', 'auth_logout');
 add_route('GET', 'auth/me', 'auth_me');
 
+add_route('GET', 'events', 'events_list');
+add_route('POST', 'events', 'events_create');
+add_route('GET', 'events/{id}', 'events_detail');
+add_route('PATCH', 'events/{id}/status', 'events_status_update');
+add_route('POST', 'events/{id}/guests', 'event_guests_create');
+add_route('POST', 'event-guests/{id}/reissue', 'event_guests_reissue');
+add_route('PATCH', 'event-guests/{id}/status', 'event_guests_status_update');
+add_route('POST', 'access/scan', 'access_scan');
+
 add_route('GET', 'users', 'users_list');
 add_route('POST', 'users', 'users_create');
 add_route('PATCH', 'users/{id}', 'users_update');

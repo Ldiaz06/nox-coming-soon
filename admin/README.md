@@ -28,6 +28,28 @@ Nunca configure `/home/noxpana/public_html/admin` como raíz pública del subdom
 - Supervisor: POS, inventario, cajas, reportes y aprobación de horas.
 - Cajero: POS de pantalla completa, su propia caja y marcación personal.
 
+### Eventos y accesos QR
+
+El módulo **Eventos y accesos** funciona dentro del mismo panel privado y no
+modifica la portada pública:
+
+- un evento con **QR general** permite usar el mismo código para registrar y
+  contar cada entrada;
+- un evento con **QR por persona** genera una invitación individual y bloquea
+  automáticamente su segundo uso;
+- administradores y supervisores crean eventos, invitados y códigos;
+- cualquier usuario activo del panel puede operar el escáner de puerta;
+- cada lectura conserva hora, resultado y usuario que la realizó;
+- los QR se pueden descargar o compartir como PNG;
+- el escáner usa la cámara desde Safari en iOS o Chrome en Android, sin instalar
+  una aplicación, e incluye lectura desde una foto como alternativa.
+
+La cámara del navegador requiere que `admin.noxpanama.com` se abra mediante
+**HTTPS**. Después de actualizar los archivos, vuelva a importar
+`admin/db/schema.sql`: el instalador es idempotente y crea las tablas
+`events`, `event_guests` y `event_access_log` sin eliminar la información
+existente.
+
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
 debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
 seleccionar **Venta rápida**. Las cuentas conservan sus productos en MySQL hasta

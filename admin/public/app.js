@@ -13,6 +13,19 @@ const state = {
   cashSessions: [],
   terminals: [],
   insights: null,
+  events: [],
+  selectedEvent: null,
+  eventGuests: [],
+  eventAccesses: [],
+  qrDownloadName: "nox-acceso.png",
+  scanner: {
+    stream: null,
+    frame: null,
+    locked: false,
+    lastToken: null,
+    absentFrames: 0,
+    lastFrameAt: 0
+  },
   cart: new Map(),
   posMode: null,
   activeTab: null,
@@ -35,7 +48,7 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const dateTime = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Panama" });
 const dateOnly = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeZone: "America/Panama" });
 const roleNames = { admin: "Administrador", supervisor: "Supervisor", cashier: "Cajero" };
-const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", inventory: "Inventario", articles: "Artículos", products: "Productos", insights: "Costos y reposición", cash: "Cajas", reports: "Reportes", workforce: "Personal", payroll: "Planilla", users: "Usuarios" };
+const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", events: "Eventos y accesos", inventory: "Inventario", articles: "Artículos", products: "Productos", insights: "Costos y reposición", cash: "Cajas", reports: "Reportes", workforce: "Personal", payroll: "Planilla", users: "Usuarios" };
 const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", liter: "litro", fluid_ounce: "oz líquida", gram: "g", kg: "kg", portion: "porción", pack: "paquete", case: "caja", keg: "barril" };
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
 const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Panama", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -218,6 +231,7 @@ async function uploadProductImage(productId, file) {
 }
 
 function showLogin() {
+  stopEventScanner();
   state.user = null;
   state.csrf = null;
   $("#app-view").hidden = true;
@@ -236,6 +250,9 @@ function showApp(user, csrf = state.csrf) {
   $("#pos-user-name").textContent = user.fullName;
   $$('[data-roles]').forEach((element) => {
     element.hidden = !element.dataset.roles.split(",").includes(user.role);
+  });
+  $$('[data-event-manage]').forEach((element) => {
+    element.classList.toggle("is-role-hidden", !["admin", "supervisor"].includes(user.role));
   });
   navigate("dashboard");
 }
@@ -257,6 +274,7 @@ async function initialize() {
 async function navigate(section) {
   const button = $(`#main-nav [data-section="${section}"]`);
   if (!button || button.hidden) return;
+  if (state.section === "events" && section !== "events") stopEventScanner();
   state.section = section;
   $("#app-view").classList.toggle("is-pos-mode", section === "pos");
   $$(".page-section").forEach((page) => { page.hidden = page.id !== `section-${section}`; });
@@ -267,7 +285,7 @@ async function navigate(section) {
   $(".sidebar").classList.remove("is-open");
   $("#menu-button").setAttribute("aria-expanded", "false");
   try {
-    const loaders = { dashboard: loadDashboard, pos: loadPos, inventory: loadInventory, articles: loadInventory, products: loadInventory, insights: loadInsights, cash: loadCash, reports: loadReports, workforce: loadWorkforce, payroll: loadPayroll, users: loadUsers };
+    const loaders = { dashboard: loadDashboard, pos: loadPos, events: loadEvents, inventory: loadInventory, articles: loadInventory, products: loadInventory, insights: loadInsights, cash: loadCash, reports: loadReports, workforce: loadWorkforce, payroll: loadPayroll, users: loadUsers };
     await loaders[section]?.();
   } catch (error) {
     toast(error.message, true);
@@ -323,6 +341,314 @@ async function loadDashboard() {
   if (state.user.role !== "cashier") statusRows.push({ label: "Inventario", value: lowStock.length ? `${lowStock.length} artículos en mínimo` : "Niveles estables", ok: !lowStock.length });
   if (state.user.role !== "cashier") statusRows.push({ label: "Reposición", value: reorderAlerts.length ? `${reorderAlerts.length} compras sugeridas` : "Sin compras urgentes", ok: !reorderAlerts.length });
   $("#operational-status").innerHTML = statusRows.map((row) => `<div class="list-row"><strong>${escapeHtml(row.label)}</strong><span class="badge ${row.ok ? "badge--success" : "badge--danger"}">${escapeHtml(row.value)}</span></div>`).join("");
+}
+
+const eventModeNames = { shared: "QR general", personal: "QR por persona" };
+const eventStatusNames = { active: "Activo", closed: "Cerrado", cancelled: "Cancelado" };
+const accessDecisionNames = { granted: "Autorizado", duplicate: "Duplicado", denied: "Denegado" };
+
+function parseServerDate(value) {
+  if (!value) return null;
+  const normalized = String(value).includes("T") ? String(value) : String(value).replace(" ", "T");
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(normalized) ? normalized : `${normalized}-05:00`);
+}
+
+function eventDateRange(event) {
+  const start = parseServerDate(event.startsAt);
+  const end = parseServerDate(event.endsAt);
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "Horario no disponible";
+  return `${dateTime.format(start)} → ${dateTime.format(end)}`;
+}
+
+function eventStatusBadge(status) {
+  const className = status === "active" ? "badge--success" : "badge--danger";
+  return `<span class="badge ${className}">${escapeHtml(eventStatusNames[status] || status)}</span>`;
+}
+
+async function loadEvents() {
+  const selectedId = Number(state.selectedEvent?.id || 0);
+  const { events } = await api("/api/events");
+  state.events = events;
+  const totalAdmitted = events.reduce((sum, event) => sum + Number(event.admittedCount || 0), 0);
+  const activeEvents = events.filter((event) => event.status === "active");
+  const personalEvents = events.filter((event) => event.accessMode === "personal").length;
+  $("#events-kpis").innerHTML = [
+    kpi("Eventos activos", String(activeEvents.length), `${events.length} en el historial`),
+    kpi("Entradas registradas", String(totalAdmitted), "Acumulado de eventos"),
+    kpi("Control personal", String(personalEvents), "Eventos con QR individual"),
+    kpi("Escáner", window.isSecureContext ? "Disponible" : "Requiere HTTPS", window.isSecureContext ? "iOS y Android" : "Abra el panel seguro")
+  ].join("");
+  renderEventList();
+  const preferred = events.find((event) => Number(event.id) === selectedId)
+    || activeEvents.find((event) => parseServerDate(event.endsAt) >= new Date())
+    || events[0];
+  if (preferred) {
+    await openEvent(preferred.id);
+  } else {
+    state.selectedEvent = null;
+    $("#event-detail").hidden = true;
+  }
+}
+
+function renderEventList() {
+  const container = $("#events-list");
+  if (!state.events.length) {
+    container.innerHTML = '<p class="empty-state">Todavía no hay eventos. Cree el primero para generar sus accesos QR.</p>';
+    return;
+  }
+  container.innerHTML = state.events.map((event) => `
+    <button type="button" class="event-card" data-event-id="${event.id}" ${Number(state.selectedEvent?.id) === Number(event.id) ? 'aria-current="true"' : ""}>
+      <span>
+        <strong>${escapeHtml(event.name)}</strong>
+        <small>${escapeHtml(eventModeNames[event.accessMode])} · ${escapeHtml(eventDateRange(event))}</small>
+      </span>
+      <span>
+        <b>${Number(event.admittedCount || 0)}${event.capacity ? `/${Number(event.capacity)}` : ""}</b>
+        <small>${eventStatusBadge(event.status)}</small>
+      </span>
+    </button>`).join("");
+}
+
+async function openEvent(eventId) {
+  const detail = await api(`/api/events/${eventId}`);
+  state.selectedEvent = detail.event;
+  state.eventGuests = detail.guests;
+  state.eventAccesses = detail.accesses;
+  renderEventList();
+  renderEventDetail();
+}
+
+function renderEventDetail() {
+  const event = state.selectedEvent;
+  if (!event) {
+    $("#event-detail").hidden = true;
+    return;
+  }
+  $("#event-detail").hidden = false;
+  $("#event-detail-mode").textContent = `${eventModeNames[event.accessMode]} · ${eventStatusNames[event.status]}`;
+  $("#event-detail-name").textContent = event.name;
+  $("#event-detail-notes").textContent = event.notes || "Sin notas internas.";
+  $("#event-detail-stats").innerHTML = [
+    `<div class="event-stat"><small>Entradas</small><strong>${Number(event.admittedCount || 0)}</strong></div>`,
+    `<div class="event-stat"><small>Capacidad</small><strong>${event.capacity ? Number(event.capacity) : "Sin límite"}</strong></div>`,
+    `<div class="event-stat"><small>Modalidad</small><strong>${escapeHtml(eventModeNames[event.accessMode])}</strong></div>`,
+    `<div class="event-stat"><small>Horario</small><strong>${escapeHtml(eventDateRange(event))}</strong></div>`
+  ].join("");
+  const shared = event.accessMode === "shared";
+  $("#show-event-qr").hidden = !shared || !event.sharedQrToken;
+  $("#personal-event-area").hidden = shared;
+  $("#toggle-event-status").textContent = event.status === "active" ? "Cerrar evento" : "Reactivar evento";
+  $("#toggle-event-status").dataset.nextStatus = event.status === "active" ? "closed" : "active";
+  $("#toggle-event-status").hidden = !["admin", "supervisor"].includes(state.user.role) || event.status === "cancelled";
+  renderEventGuests();
+  renderEventAccesses();
+}
+
+function renderEventGuests() {
+  $("#guest-count").textContent = `${state.eventGuests.length} invitaciones`;
+  $("#event-guests-table").innerHTML = state.eventGuests.length ? state.eventGuests.map((guest) => {
+    const active = guest.status === "invited";
+    const statusClass = guest.status === "admitted" ? "badge--success" : guest.status === "cancelled" ? "badge--danger" : "badge--gold";
+    const statusName = guest.status === "admitted" ? "Admitido" : guest.status === "cancelled" ? "Cancelado" : "Invitado";
+    const canManage = ["admin", "supervisor"].includes(state.user.role);
+    const managerActions = canManage && guest.status !== "admitted"
+      ? `<button class="table-action" data-guest-reissue="${guest.id}">Reemitir</button>
+         <button class="table-action" data-guest-status="${guest.id}" data-status="${active ? "cancelled" : "invited"}">${active ? "Cancelar" : "Restaurar"}</button>`
+      : "";
+    return `<tr>
+      <td class="guest-name-cell"><strong>${escapeHtml(guest.fullName)}</strong><small>${escapeHtml(guest.notes || "Sin nota")}</small></td>
+      <td>${escapeHtml(guest.contact || "—")}</td>
+      <td><span class="badge ${statusClass}">${statusName}</span></td>
+      <td>${guest.admittedAt ? dateTime.format(parseServerDate(guest.admittedAt)) : "Pendiente"}</td>
+      <td>${canManage ? `<button class="table-action" data-guest-qr="${guest.id}">Ver QR</button>` : ""}${managerActions}</td>
+    </tr>`;
+  }).join("") : '<tr><td colspan="5"><p class="empty-state">Agregue invitados para generar sus códigos personales.</p></td></tr>';
+}
+
+function renderEventAccesses() {
+  $("#event-access-table").innerHTML = state.eventAccesses.length ? state.eventAccesses.map((access) => {
+    const className = access.decision === "granted" ? "badge--success" : access.decision === "duplicate" ? "badge--gold" : "badge--danger";
+    return `<tr>
+      <td>${dateTime.format(parseServerDate(access.scannedAt))}</td>
+      <td><span class="badge ${className}">${escapeHtml(accessDecisionNames[access.decision] || access.decision)}</span></td>
+      <td>${escapeHtml(access.guestName || (access.tokenType === "shared" ? "QR general" : "—"))}</td>
+      <td>${escapeHtml(access.scannedBy)}</td>
+    </tr>`;
+  }).join("") : '<tr><td colspan="4"><p class="empty-state">Aún no hay lecturas para este evento.</p></td></tr>';
+}
+
+function safeFileName(value) {
+  return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "acceso";
+}
+
+function showAccessQr(token, title, subtitle) {
+  const container = $("#qr-code");
+  container.replaceChildren();
+  $("#qr-dialog-title").textContent = title;
+  $("#qr-dialog-subtitle").textContent = subtitle;
+  state.qrDownloadName = `${safeFileName(title)}-nox.png`;
+  new QRCode(container, {
+    text: `NOX1:${token}`,
+    width: 320,
+    height: 320,
+    colorDark: "#050505",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  $("#event-qr-dialog").showModal();
+}
+
+function qrCanvas() {
+  return $("#qr-code canvas");
+}
+
+function qrBlob() {
+  return new Promise((resolve, reject) => {
+    const canvas = qrCanvas();
+    if (!canvas) return reject(new Error("No fue posible preparar el QR."));
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("No fue posible preparar el QR.")), "image/png");
+  });
+}
+
+function setScanResult(result) {
+  const element = $("#scan-result");
+  element.classList.remove("is-granted", "is-denied", "is-duplicate");
+  const className = result.granted ? "is-granted" : result.decision === "duplicate" ? "is-duplicate" : "is-denied";
+  element.classList.add(className);
+  const title = result.granted
+    ? (result.guest ? `Bienvenido, ${result.guest.name}` : "Asistencia registrada")
+    : result.message;
+  const detail = result.event
+    ? `${result.event.name}${result.admittedCount ? ` · ${result.admittedCount} entradas` : ""}`
+    : "Revise el código e intente nuevamente.";
+  element.innerHTML = `<span aria-hidden="true">${result.granted ? "✓" : result.decision === "duplicate" ? "!" : "×"}</span><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></div>`;
+}
+
+async function submitAccessToken(token) {
+  if (state.scanner.locked) return;
+  state.scanner.locked = true;
+  try {
+    const result = await api("/api/access/scan", { method: "POST", body: JSON.stringify({ token }) });
+    setScanResult(result);
+    if (result.granted && navigator.vibrate) navigator.vibrate(90);
+    if (!result.granted && navigator.vibrate) navigator.vibrate([70, 45, 70]);
+    if (state.selectedEvent && result.event && Number(state.selectedEvent.id) === Number(result.event.id)) {
+      await openEvent(result.event.id);
+    } else {
+      const event = state.events.find((item) => Number(item.id) === Number(result.event?.id));
+      if (event && result.granted) event.admittedCount = Number(event.admittedCount || 0) + 1;
+      renderEventList();
+    }
+  } catch (error) {
+    setScanResult({ granted: false, decision: "denied", message: error.message });
+  } finally {
+    window.setTimeout(() => { state.scanner.locked = false; }, 1300);
+  }
+}
+
+function scanImageSource(source, width, height) {
+  const canvas = $("#qr-canvas");
+  const maxWidth = 960;
+  const scale = Math.min(1, maxWidth / width);
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  return window.jsQR(image.data, image.width, image.height, { inversionAttempts: "attemptBoth" });
+}
+
+function scannerFrame(timestamp = 0) {
+  const video = $("#qr-video");
+  if (!state.scanner.stream || video.readyState < 2) {
+    state.scanner.frame = requestAnimationFrame(scannerFrame);
+    return;
+  }
+  if (timestamp - state.scanner.lastFrameAt < 90) {
+    state.scanner.frame = requestAnimationFrame(scannerFrame);
+    return;
+  }
+  state.scanner.lastFrameAt = timestamp;
+  let code = null;
+  try {
+    code = scanImageSource(video, video.videoWidth, video.videoHeight);
+  } catch {
+    code = null;
+  }
+  if (code?.data) {
+    state.scanner.absentFrames = 0;
+    if (code.data !== state.scanner.lastToken && !state.scanner.locked) {
+      state.scanner.lastToken = code.data;
+      submitAccessToken(code.data);
+    }
+  } else {
+    state.scanner.absentFrames += 1;
+    if (state.scanner.absentFrames > 8) state.scanner.lastToken = null;
+  }
+  state.scanner.frame = requestAnimationFrame(scannerFrame);
+}
+
+async function startEventScanner() {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    setScanResult({ granted: false, decision: "denied", message: "La cámara requiere abrir el panel mediante HTTPS." });
+    return;
+  }
+  stopEventScanner();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    state.scanner.stream = stream;
+    state.scanner.lastToken = null;
+    state.scanner.absentFrames = 0;
+    state.scanner.lastFrameAt = 0;
+    const video = $("#qr-video");
+    video.srcObject = stream;
+    await video.play();
+    $("#scanner-placeholder").hidden = true;
+    $("#start-scanner").hidden = true;
+    $("#stop-scanner").hidden = false;
+    $("#scanner-status").textContent = "Escaneando";
+    state.scanner.frame = requestAnimationFrame(scannerFrame);
+  } catch (error) {
+    setScanResult({ granted: false, decision: "denied", message: error.name === "NotAllowedError" ? "Permita el acceso a la cámara o use “Tomar foto del QR”." : "No fue posible abrir la cámara." });
+  }
+}
+
+function stopEventScanner() {
+  if (state.scanner.frame) cancelAnimationFrame(state.scanner.frame);
+  state.scanner.frame = null;
+  if (state.scanner.stream) state.scanner.stream.getTracks().forEach((track) => track.stop());
+  state.scanner.stream = null;
+  const video = $("#qr-video");
+  if (video) video.srcObject = null;
+  if ($("#scanner-placeholder")) $("#scanner-placeholder").hidden = false;
+  if ($("#start-scanner")) $("#start-scanner").hidden = false;
+  if ($("#stop-scanner")) $("#stop-scanner").hidden = true;
+  if ($("#scanner-status")) $("#scanner-status").textContent = "Cámara apagada";
+}
+
+async function scanQrPhoto(file) {
+  if (!file) return;
+  const image = new Image();
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = objectUrl;
+    });
+    const code = scanImageSource(image, image.naturalWidth, image.naturalHeight);
+    if (!code?.data) {
+      setScanResult({ granted: false, decision: "denied", message: "No se encontró un QR legible en la foto." });
+      return;
+    }
+    state.scanner.lastToken = null;
+    await submitAccessToken(code.data);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 async function loadPos() {
@@ -1394,6 +1720,158 @@ $("#edit-user-form").addEventListener("submit", async (event) => {
     toast("Usuario actualizado.");
     await loadUsers();
   } catch (error) { toast(error.message, true); }
+});
+
+function datetimeLocalValue(date) {
+  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return shifted.toISOString().slice(0, 16);
+}
+
+$("#show-new-event").addEventListener("click", () => {
+  const form = $("#new-event-form");
+  form.reset();
+  const start = new Date();
+  start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30, 0, 0);
+  const end = new Date(start.getTime() + 6 * 60 * 60 * 1000);
+  form.elements.startsAt.value = datetimeLocalValue(start);
+  form.elements.endsAt.value = datetimeLocalValue(end);
+  form.hidden = false;
+  form.elements.name.focus();
+});
+
+$("#new-event-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  try {
+    const created = await api("/api/events", {
+      method: "POST",
+      body: JSON.stringify({
+        name: values.name,
+        accessMode: values.accessMode,
+        startsAt: values.startsAt,
+        endsAt: values.endsAt,
+        capacity: values.capacity ? Number(values.capacity) : null,
+        notes: values.notes || null
+      })
+    });
+    form.reset();
+    form.hidden = true;
+    state.selectedEvent = { id: created.id };
+    toast("Evento creado. Ya puede generar y escanear sus accesos.");
+    await loadEvents();
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#events-list").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-event-id]");
+  if (button) openEvent(Number(button.dataset.eventId)).catch((error) => toast(error.message, true));
+});
+
+$("#show-event-qr").addEventListener("click", () => {
+  const event = state.selectedEvent;
+  if (!event?.sharedQrToken) return toast("Este evento no tiene un QR general.", true);
+  showAccessQr(event.sharedQrToken, event.name, `${eventModeNames[event.accessMode]} · ${eventDateRange(event)}`);
+});
+
+$("#toggle-event-status").addEventListener("click", async (event) => {
+  const selected = state.selectedEvent;
+  if (!selected) return;
+  const status = event.currentTarget.dataset.nextStatus;
+  try {
+    await api(`/api/events/${selected.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+    toast(status === "active" ? "Evento reactivado." : "Evento cerrado.");
+    await loadEvents();
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#new-guest-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const selected = state.selectedEvent;
+  if (!selected) return;
+  const values = formValues(form);
+  try {
+    const guest = await api(`/api/events/${selected.id}/guests`, {
+      method: "POST",
+      body: JSON.stringify({ fullName: values.fullName, contact: values.contact || null, notes: values.notes || null })
+    });
+    const guestName = values.fullName;
+    form.reset();
+    toast("Invitación personal creada.");
+    await openEvent(selected.id);
+    showAccessQr(guest.qrToken, guestName, `${selected.name} · Invitación personal`);
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#event-guests-table").addEventListener("click", async (event) => {
+  const qrButton = event.target.closest("[data-guest-qr]");
+  const reissueButton = event.target.closest("[data-guest-reissue]");
+  const statusButton = event.target.closest("[data-guest-status]");
+  const guestId = Number(qrButton?.dataset.guestQr || reissueButton?.dataset.guestReissue || statusButton?.dataset.guestStatus || 0);
+  const guest = state.eventGuests.find((item) => Number(item.id) === guestId);
+  if (!guest || !state.selectedEvent) return;
+  if (qrButton) {
+    showAccessQr(guest.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`);
+    return;
+  }
+  if (reissueButton) {
+    if (!window.confirm(`El QR anterior de ${guest.fullName} dejará de funcionar. ¿Desea continuar?`)) return;
+    try {
+      const result = await api(`/api/event-guests/${guest.id}/reissue`, { method: "POST", body: JSON.stringify({}) });
+      await openEvent(state.selectedEvent.id);
+      toast("QR reemplazado. El código anterior quedó invalidado.");
+      showAccessQr(result.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`);
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
+  if (statusButton) {
+    try {
+      await api(`/api/event-guests/${guest.id}/status`, { method: "PATCH", body: JSON.stringify({ status: statusButton.dataset.status }) });
+      toast(statusButton.dataset.status === "cancelled" ? "Invitación cancelada." : "Invitación restaurada.");
+      await openEvent(state.selectedEvent.id);
+    } catch (error) { toast(error.message, true); }
+  }
+});
+
+$("#download-qr").addEventListener("click", () => {
+  const canvas = qrCanvas();
+  if (!canvas) return toast("No fue posible preparar el QR.", true);
+  const link = document.createElement("a");
+  link.download = state.qrDownloadName;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+});
+
+$("#share-qr").addEventListener("click", async () => {
+  try {
+    const blob = await qrBlob();
+    const file = new File([blob], state.qrDownloadName, { type: "image/png" });
+    if (!navigator.share || !navigator.canShare?.({ files: [file] })) {
+      $("#download-qr").click();
+      return toast("El navegador descargó el QR para que pueda compartirlo.");
+    }
+    await navigator.share({ title: $("#qr-dialog-title").textContent, files: [file] });
+  } catch (error) {
+    if (error.name !== "AbortError") toast(error.message, true);
+  }
+});
+
+$("#start-scanner").addEventListener("click", startEventScanner);
+$("#stop-scanner").addEventListener("click", stopEventScanner);
+$("#qr-photo-input").addEventListener("change", async (event) => {
+  const input = event.currentTarget;
+  try {
+    await scanQrPhoto(input.files?.[0]);
+  } catch {
+    setScanResult({ granted: false, decision: "denied", message: "No fue posible leer la foto seleccionada." });
+  } finally {
+    input.value = "";
+  }
+});
+window.addEventListener("pagehide", stopEventScanner);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopEventScanner();
 });
 
 initialize();

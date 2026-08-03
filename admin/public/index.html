@@ -38,6 +38,7 @@
       <nav id="main-nav">
         <button data-section="dashboard"><span>◇</span>Resumen</button>
         <button data-section="pos"><span>▦</span>POS</button>
+        <button data-section="events"><span>⌁</span>Eventos y accesos</button>
         <button data-section="inventory" data-roles="admin,supervisor"><span>▤</span>Inventario</button>
         <button data-section="articles" data-roles="admin,supervisor"><span>▧</span>Artículos</button>
         <button data-section="products" data-roles="admin,supervisor"><span>◩</span>Productos</button>
@@ -113,6 +114,92 @@
             <p id="pos-message" class="form-message" role="status"></p>
           </aside>
         </div>
+      </section>
+
+      <section id="section-events" class="page-section" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">CONTROL DE ENTRADA</p><h2>Eventos y accesos QR</h2></div>
+          <div class="heading-actions">
+            <button class="button button--ghost" data-refresh="events">Actualizar</button>
+            <button id="show-new-event" class="button button--primary" data-event-manage>Crear evento</button>
+          </div>
+        </div>
+
+        <div id="events-kpis" class="kpi-grid"></div>
+
+        <div class="access-layout">
+          <article class="panel scanner-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">PUERTA</p><h3>Escanear entrada</h3></div>
+              <span id="scanner-status" class="status-pill">Cámara apagada</span>
+            </div>
+            <div class="scanner-viewport">
+              <video id="qr-video" playsinline muted aria-label="Vista de la cámara para escanear códigos QR"></video>
+              <canvas id="qr-canvas" hidden></canvas>
+              <div class="scanner-guide" aria-hidden="true"><span></span></div>
+              <div id="scanner-placeholder" class="scanner-placeholder"><span aria-hidden="true">⌁</span><strong>Listo para escanear</strong><small>Abra la cámara y apunte al QR de la entrada.</small></div>
+            </div>
+            <div class="scanner-actions">
+              <button id="start-scanner" type="button" class="button button--primary">Abrir cámara</button>
+              <button id="stop-scanner" type="button" class="button button--ghost" hidden>Detener</button>
+              <label class="button button--ghost file-button">Tomar foto del QR<input id="qr-photo-input" type="file" accept="image/*" capture="environment"></label>
+            </div>
+            <p class="scanner-note">La cámara funciona en Safari y Chrome cuando el panel usa HTTPS. Retire el QR del recuadro antes de escanear a la siguiente persona.</p>
+            <div id="scan-result" class="scan-result" role="status" aria-live="assertive">
+              <span aria-hidden="true">◇</span>
+              <div><strong>Esperando un código</strong><small>El resultado aparecerá aquí.</small></div>
+            </div>
+          </article>
+
+          <article class="panel events-list-panel">
+            <div class="panel-heading"><div><p class="eyebrow">AGENDA</p><h3>Eventos</h3></div></div>
+            <div id="events-list" class="event-card-list"></div>
+          </article>
+        </div>
+
+        <form id="new-event-form" class="panel inline-form" hidden data-event-manage>
+          <div class="form-intro wide-field"><p class="eyebrow">NUEVO EVENTO</p><h3>Definir la modalidad de acceso</h3><p>Use un QR general para contar asistentes o invitaciones personales para impedir entradas duplicadas.</p></div>
+          <label>Nombre del evento<input name="name" maxlength="160" minlength="2" required placeholder="Eclipse Friday"></label>
+          <label>Modalidad<select name="accessMode"><option value="shared">Un QR general</option><option value="personal">QR por persona</option></select></label>
+          <label>Inicio<input name="startsAt" type="datetime-local" required></label>
+          <label>Cierre<input name="endsAt" type="datetime-local" required></label>
+          <label>Capacidad máxima<input name="capacity" type="number" min="1" max="100000" placeholder="Sin límite"></label>
+          <label class="wide-field">Notas<input name="notes" maxlength="500" placeholder="Información interna para el equipo de puerta"></label>
+          <div class="form-actions wide-field"><button class="button button--primary" type="submit">Crear evento</button><button class="button button--ghost" type="button" data-cancel-form="new-event-form">Cancelar</button></div>
+        </form>
+
+        <section id="event-detail" class="event-detail" hidden>
+          <article class="panel event-summary-panel">
+            <div class="panel-heading">
+              <div><p id="event-detail-mode" class="eyebrow"></p><h3 id="event-detail-name"></h3></div>
+              <div class="heading-actions">
+                <button id="show-event-qr" type="button" class="button button--primary">Ver QR general</button>
+                <button id="toggle-event-status" type="button" class="button button--ghost" data-event-manage></button>
+              </div>
+            </div>
+            <div id="event-detail-stats" class="event-stats"></div>
+            <p id="event-detail-notes" class="event-notes"></p>
+          </article>
+
+          <div id="personal-event-area" class="personal-event-area">
+            <form id="new-guest-form" class="panel inline-form" data-event-manage>
+              <div class="form-intro wide-field"><p class="eyebrow">INVITACIÓN PERSONAL</p><h3>Generar un QR para una persona</h3><p>El código queda invalidado automáticamente después de registrar su primera entrada.</p></div>
+              <label>Nombre completo<input name="fullName" maxlength="160" minlength="2" required></label>
+              <label>Teléfono o correo<input name="contact" maxlength="160"></label>
+              <label>Nota<input name="notes" maxlength="300" placeholder="Mesa, promotor o cortesía"></label>
+              <div class="form-actions"><button class="button button--primary" type="submit">Crear invitación</button></div>
+            </form>
+            <article class="panel table-panel">
+              <div class="panel-heading"><div><p class="eyebrow">LISTA</p><h3>Invitados</h3></div><span id="guest-count" class="panel-note"></span></div>
+              <div class="table-scroll"><table><thead><tr><th>Invitado</th><th>Contacto</th><th>Estado</th><th>Entrada</th><th></th></tr></thead><tbody id="event-guests-table"></tbody></table></div>
+            </article>
+          </div>
+
+          <article class="panel table-panel">
+            <div class="panel-heading"><div><p class="eyebrow">AUDITORÍA DE PUERTA</p><h3>Lecturas recientes</h3></div></div>
+            <div class="table-scroll"><table><thead><tr><th>Hora</th><th>Resultado</th><th>Invitado</th><th>Escaneó</th></tr></thead><tbody id="event-access-table"></tbody></table></div>
+          </article>
+        </section>
       </section>
 
       <section id="section-inventory" class="page-section" hidden>
@@ -264,8 +351,22 @@
       <div class="form-actions"><button class="button button--primary" value="submit">Guardar cambios</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
     </form>
   </dialog>
+  <dialog id="event-qr-dialog" class="qr-dialog">
+    <form method="dialog" class="dialog-form">
+      <div><p class="eyebrow">ACCESO NOX</p><h2 id="qr-dialog-title">Código QR</h2><p id="qr-dialog-subtitle" class="muted"></p></div>
+      <div id="qr-code" class="qr-code" aria-label="Código QR de acceso"></div>
+      <p class="qr-help">Presente este código al personal de la entrada. No lo recorte ni lo cubra.</p>
+      <div class="form-actions">
+        <button id="download-qr" class="button button--primary" type="button">Descargar PNG</button>
+        <button id="share-qr" class="button button--ghost" type="button">Compartir</button>
+        <button class="button button--ghost" value="cancel">Cerrar</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260803-14" defer></script>
+  <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
+  <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
+  <script src="/app.js?v=20260803-15" defer></script>
 </body>
 </html>

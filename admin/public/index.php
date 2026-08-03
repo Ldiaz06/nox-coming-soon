@@ -22,6 +22,7 @@ if (PHP_VERSION_ID < 70400) {
 
 require_once dirname(__DIR__) . '/app/bootstrap.php';
 require_once dirname(__DIR__) . '/app/auth_users.php';
+require_once dirname(__DIR__) . '/app/events_access.php';
 require_once dirname(__DIR__) . '/app/inventory_pos.php';
 require_once dirname(__DIR__) . '/app/operations.php';
 require_once dirname(__DIR__) . '/app/workforce_payroll.php';
