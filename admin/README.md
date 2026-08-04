@@ -81,6 +81,18 @@ Este instalador independiente es idempotente y solo crea las tablas `events`,
 cajas, planilla ni otros datos existentes. Para una instalación completamente
 nueva, `admin/db/schema.sql` ya incluye también estas tres tablas.
 
+Para habilitar la eliminación individual, múltiple y el reinicio del
+inventario en una base de datos existente, importe una sola vez (o repítalo sin
+riesgo) el archivo idempotente:
+
+```text
+/home/noxpana/public_html/admin/db/migrate_inventory_deletion.sql
+```
+
+Esta migración solo agrega la columna `deleted_at` a `inventory_items` y
+`products`; no elimina ni modifica existencias, compras, ventas, cuentas o
+auditorías.
+
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
 debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
 seleccionar **Venta rápida**. Las cuentas conservan sus productos en MySQL hasta
