@@ -49,6 +49,12 @@ modifica la portada pública:
 - el botón **Escáner en pantalla completa** abre `/scanner/`, una vista
   exclusiva para el personal de entrada sin el resto de la administración;
 - cada lectura conserva hora, resultado y usuario que la realizó;
+- cada invitación personal tiene un enlace público con formato
+  `https://admin.noxpanama.com/invite/#TOKEN`, que se puede copiar o compartir
+  desde la lista de invitados;
+- el invitado puede abrir el enlace sin iniciar sesión, escribir su token,
+  consultar el estado de la invitación, ver o descargar su QR y agregar el pase
+  a Apple Wallet o Google Wallet cuando las credenciales estén habilitadas;
 - los QR se pueden descargar o compartir como PNG;
 - el escáner usa la cámara desde Safari en iOS o Chrome en Android, sin instalar
   una aplicación, e incluye lectura desde una foto como alternativa.
@@ -230,6 +236,8 @@ En **cPanel > Select PHP Version** o desde WHM, confirme que estén activos:
 - `mbstring`
 - `session`
 - `json`
+- `openssl`
+- `zip`
 
 Si dispone de Terminal o SSH:
 
@@ -333,10 +341,95 @@ Mantenga:
 
 ```php
 'app_origin' => 'https://admin.noxpanama.com',
+'public_invitation_origin' => 'https://admin.noxpanama.com',
 'cookie_secure' => true,
 ```
 
 La aplicación detecta automáticamente el directorio de la cuenta y busca `/home/noxpana/nox-admin-config.php`. También acepta `admin/config/nox-admin-config.php` como alternativa protegida. Para otra ruta puede definir `NOX_ADMIN_CONFIG` en Apache.
+
+## Portal público y Wallet
+
+El portal queda disponible en:
+
+```text
+https://admin.noxpanama.com/invite/
+```
+
+El enlace compartido conserva el token después de `#`, para que el navegador no
+lo envíe al cargar la página ni lo incluya en el encabezado de referencia. El
+portal no expone contacto, notas internas ni identificadores consecutivos.
+Utiliza el mismo token personal y el mismo QR que ya valida el escáner.
+
+Esta actualización no requiere ejecutar otro SQL: `event_guests.qr_token` ya es
+único y funciona como token público de alta entropía. Cancelar, reemitir,
+admitir o eliminar una invitación también invalida automáticamente el enlace
+anterior.
+
+El portal y la descarga normal del QR funcionan sin credenciales de Wallet. Los
+botones de Apple y Google se muestran únicamente cuando la integración
+correspondiente está completamente configurada.
+
+### Apple Wallet
+
+En Apple Developer:
+
+1. cree un **Pass Type ID**;
+2. genere el certificado correspondiente;
+3. exporte certificado y llave privada juntos a un archivo `.p12`;
+4. descargue el certificado intermedio **Apple WWDR** en formato PEM.
+
+Guarde los archivos fuera de `public_html`, por ejemplo:
+
+```text
+/home/noxpana/private/apple/nox-wallet-pass.p12
+/home/noxpana/private/apple/AppleWWDRCA.pem
+```
+
+### Google Wallet
+
+En Google Wallet API:
+
+1. cree o active la cuenta emisora y copie su **Issuer ID**;
+2. cree una cuenta de servicio en Google Cloud;
+3. autorice esa cuenta de servicio dentro de Google Wallet Business Console;
+4. descargue su credencial JSON.
+
+Guarde el JSON fuera de `public_html`, por ejemplo:
+
+```text
+/home/noxpana/private/google/wallet-service-account.json
+```
+
+Agregue ambos proveedores al archivo privado
+`/home/noxpana/nox-admin-config.php`:
+
+```php
+'wallet' => [
+    'apple' => [
+        'pass_type_identifier' => 'pass.com.suempresa.nox',
+        'team_identifier' => 'SU_TEAM_ID',
+        'pkcs12_path' => '/home/noxpana/private/apple/nox-wallet-pass.p12',
+        'pkcs12_password' => 'CLAVE_DEL_P12',
+        'wwdr_certificate_path' => '/home/noxpana/private/apple/AppleWWDRCA.pem',
+    ],
+    'google' => [
+        'issuer_id' => 'SU_ISSUER_ID',
+        'class_suffix' => 'nox_event_invitation',
+        'service_account_json_path' => '/home/noxpana/private/google/wallet-service-account.json',
+        'origins' => ['https://admin.noxpanama.com'],
+    ],
+],
+```
+
+Proteja esos archivos:
+
+```bash
+chmod 600 /home/noxpana/private/apple/*
+chmod 600 /home/noxpana/private/google/*
+```
+
+No suba certificados, llaves `.p12`, archivos PEM ni credenciales JSON al
+repositorio.
 
 ## 5. Primer administrador
 

@@ -19,6 +19,12 @@ if (function_exists('events_list')) {
     add_route('POST', 'access/scan', 'access_scan');
 }
 
+if (function_exists('public_invitation_lookup')) {
+    add_route('POST', 'public/invitations/lookup', 'public_invitation_lookup');
+    add_route('POST', 'public/invitations/apple-wallet', 'public_invitation_apple_wallet');
+    add_route('POST', 'public/invitations/google-wallet', 'public_invitation_google_wallet');
+}
+
 add_route('GET', 'users', 'users_list');
 add_route('POST', 'users', 'users_create');
 add_route('PATCH', 'users/{id}', 'users_update');

@@ -394,6 +394,15 @@
       <div><p class="eyebrow">ACCESO NOX</p><h2 id="qr-dialog-title">Código QR</h2><p id="qr-dialog-subtitle" class="muted"></p></div>
       <div id="qr-code" class="qr-code" aria-label="Código QR de acceso"></div>
       <p class="qr-help">Presente este código al personal de la entrada. No lo recorte ni lo cubra.</p>
+      <div id="qr-public-link" class="qr-public-link" hidden>
+        <label for="qr-public-url">Enlace público de la invitación</label>
+        <input id="qr-public-url" type="text" readonly>
+        <div>
+          <button id="copy-invitation-link" class="button button--primary" type="button">Copiar enlace</button>
+          <button id="share-invitation-link" class="button button--ghost" type="button">Enviar invitación</button>
+        </div>
+        <small>El invitado podrá abrir este enlace, ver su QR y agregarlo a Wallet cuando esté configurado.</small>
+      </div>
       <div class="form-actions">
         <button id="download-qr" class="button button--primary" type="button">Descargar PNG</button>
         <button id="share-qr" class="button button--ghost" type="button">Compartir</button>
@@ -434,6 +443,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260803-19" defer></script>
+  <script src="/app.js?v=20260803-20" defer></script>
 </body>
 </html>

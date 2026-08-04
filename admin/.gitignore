@@ -4,3 +4,7 @@ nox-admin-config.php
 *.log
 node_modules/
 storage/sessions/
+*.p12
+*.pfx
+*.pem
+*service-account*.json

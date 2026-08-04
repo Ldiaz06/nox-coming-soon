@@ -30,6 +30,14 @@ if (is_file($eventsAccessModule)) {
         error_log('NOX events module could not be loaded: ' . $error->__toString());
     }
 }
+$publicInvitationsModule = dirname(__DIR__) . '/app/public_invitations.php';
+if (is_file($publicInvitationsModule)) {
+    try {
+        require_once $publicInvitationsModule;
+    } catch (Throwable $error) {
+        error_log('NOX public invitations module could not be loaded: ' . $error->__toString());
+    }
+}
 require_once dirname(__DIR__) . '/app/inventory_pos.php';
 require_once dirname(__DIR__) . '/app/operations.php';
 require_once dirname(__DIR__) . '/app/workforce_payroll.php';

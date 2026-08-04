@@ -37,6 +37,7 @@ function nox_config(): array
     $config = [
         'app_env' => getenv('APP_ENV') ?: 'production',
         'app_origin' => getenv('APP_ORIGIN') ?: '',
+        'public_invitation_origin' => getenv('PUBLIC_INVITATION_ORIGIN') ?: (getenv('APP_ORIGIN') ?: ''),
         'cookie_secure' => (getenv('COOKIE_SECURE') ?: 'true') === 'true',
         'db' => [
             'host' => getenv('DB_HOST') ?: '',
@@ -44,6 +45,24 @@ function nox_config(): array
             'name' => getenv('DB_NAME') ?: '',
             'user' => getenv('DB_USER') ?: '',
             'password' => getenv('DB_PASSWORD') ?: '',
+        ],
+        'wallet' => [
+            'apple' => [
+                'pass_type_identifier' => getenv('APPLE_WALLET_PASS_TYPE_IDENTIFIER') ?: '',
+                'team_identifier' => getenv('APPLE_WALLET_TEAM_IDENTIFIER') ?: '',
+                'pkcs12_path' => getenv('APPLE_WALLET_PKCS12_PATH') ?: '',
+                'pkcs12_password' => getenv('APPLE_WALLET_PKCS12_PASSWORD') ?: '',
+                'wwdr_certificate_path' => getenv('APPLE_WALLET_WWDR_CERTIFICATE_PATH') ?: '',
+            ],
+            'google' => [
+                'issuer_id' => getenv('GOOGLE_WALLET_ISSUER_ID') ?: '',
+                'class_suffix' => getenv('GOOGLE_WALLET_CLASS_SUFFIX') ?: 'nox_event_invitation',
+                'service_account_json_path' => getenv('GOOGLE_WALLET_SERVICE_ACCOUNT_JSON_PATH') ?: '',
+                'origins' => array_values(array_filter(array_map(
+                    'trim',
+                    explode(',', getenv('GOOGLE_WALLET_ORIGINS') ?: (getenv('APP_ORIGIN') ?: ''))
+                ))),
+            ],
         ],
     ];
 

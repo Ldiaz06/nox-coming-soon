@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="theme-color" content="#070706">
+  <title>Mi invitación · NOX Panamá</title>
+  <link rel="icon" href="/assets/wallet/icon@2x.png" type="image/png">
+  <link rel="stylesheet" href="/invite/invite.css?v=20260803-1">
+</head>
+<body>
+  <main class="invitation-shell">
+    <header class="brand" aria-label="NOX Panamá">
+      <img src="/assets/wallet/icon@2x.png" alt="" width="58" height="58">
+      <div>
+        <strong>NOX</strong>
+        <span>THE NIGHT MUST GO ON</span>
+      </div>
+    </header>
+
+    <section id="token-panel" class="token-panel" aria-labelledby="portal-title">
+      <p class="eyebrow">PORTAL DE INVITACIONES</p>
+      <h1 id="portal-title">Tu acceso a NOX</h1>
+      <p>Escribe el token único que recibiste o abre directamente el enlace compartido por el organizador.</p>
+      <form id="token-form" novalidate>
+        <label for="invitation-token">Token de invitación</label>
+        <div class="token-entry">
+          <input id="invitation-token" name="token" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="P•••••••••••••••••••••••••••••••" required>
+          <button type="submit">Ver invitación</button>
+        </div>
+        <small id="token-error" class="form-error" role="alert"></small>
+      </form>
+    </section>
+
+    <section id="loading-panel" class="state-panel" aria-live="polite" hidden>
+      <span class="loader" aria-hidden="true"></span>
+      <strong>Buscando tu invitación…</strong>
+    </section>
+
+    <section id="invitation-panel" class="invitation-card" aria-labelledby="guest-name" hidden>
+      <div class="card-glow" aria-hidden="true"></div>
+      <div class="card-heading">
+        <p class="eyebrow">INVITACIÓN PERSONAL</p>
+        <span id="invitation-status" class="status-badge"></span>
+      </div>
+      <p class="welcome">Bienvenido</p>
+      <h1 id="guest-name"></h1>
+      <div class="event-detail">
+        <small>EVENTO</small>
+        <strong id="event-name"></strong>
+        <time id="event-date"></time>
+      </div>
+
+      <div id="qr-area" class="qr-area">
+        <div id="invitation-qr" class="qr-code" aria-label="Código QR de la invitación"></div>
+        <p>Presenta este código en la entrada. Es personal y permite un solo acceso.</p>
+      </div>
+
+      <div id="unavailable-message" class="unavailable-message" role="status" hidden></div>
+
+      <div id="wallet-area" class="wallet-area">
+        <p>Guarda tu invitación en el teléfono</p>
+        <div class="wallet-buttons">
+          <button id="apple-wallet" class="wallet-button wallet-button--apple" type="button" hidden>
+            <span aria-hidden="true">●</span>
+            <span><small>Agregar a</small><strong>Apple Wallet</strong></span>
+          </button>
+          <button id="google-wallet" class="wallet-button wallet-button--google" type="button" hidden>
+            <span class="google-mark" aria-hidden="true">G</span>
+            <span><small>Agregar a</small><strong>Google Wallet</strong></span>
+          </button>
+        </div>
+        <small id="wallet-message" class="wallet-message"></small>
+      </div>
+
+      <div id="invitation-actions" class="invitation-actions">
+        <button id="download-qr" type="button">Descargar QR</button>
+        <button id="share-invitation" type="button">Compartir invitación</button>
+      </div>
+      <button id="change-token" class="text-button" type="button">Abrir otra invitación</button>
+    </section>
+
+    <footer>
+      <span>NOX PANAMÁ</span>
+      <small>El token y el QR son privados. Compártelos únicamente con la persona invitada.</small>
+    </footer>
+  </main>
+
+  <script src="/vendor/qrcodejs/qrcode.min.js"></script>
+  <script src="/invite/invite.js?v=20260803-1" defer></script>
+</body>
+</html>

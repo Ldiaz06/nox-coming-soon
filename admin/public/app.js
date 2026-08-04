@@ -23,6 +23,7 @@ const state = {
     errors: []
   },
   qrDownloadName: "nox-acceso.png",
+  qrShareUrl: "",
   scanner: {
     stream: null,
     frame: null,
@@ -467,7 +468,8 @@ function renderEventGuests() {
       <td>${escapeHtml(guest.contact || "—")}</td>
       <td><span class="badge ${statusClass}">${statusName}</span></td>
       <td>${guest.admittedAt ? dateTime.format(parseServerDate(guest.admittedAt)) : "Pendiente"}</td>
-      <td>${canManage ? `<button class="table-action" data-guest-qr="${guest.id}">Ver QR</button>` : ""}${managerActions}</td>
+      <td>${canManage ? `<button class="table-action" data-guest-qr="${guest.id}">Ver QR</button>
+        <button class="table-action" data-guest-share="${guest.id}">Compartir enlace</button>` : ""}${managerActions}</td>
     </tr>`;
   }).join("") : '<tr><td colspan="5"><p class="empty-state">Agregue invitados para generar sus códigos personales.</p></td></tr>';
 }
@@ -664,12 +666,49 @@ function safeFileName(value) {
   return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "acceso";
 }
 
-function showAccessQr(token, title, subtitle) {
+function invitationPublicUrl(token) {
+  return `${window.location.origin}/invite/#${token}`;
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
+async function shareInvitationLink(guest, eventName) {
+  const url = invitationPublicUrl(guest.qrToken);
+  if (navigator.share) {
+    await navigator.share({
+      title: `Invitación · ${eventName}`,
+      text: `${guest.fullName}, esta es tu invitación personal a NOX.`,
+      url
+    });
+    return;
+  }
+  await copyText(url);
+  toast("Enlace público copiado.");
+}
+
+function showAccessQr(token, title, subtitle, publicUrl = "") {
   const container = $("#qr-code");
   container.replaceChildren();
   $("#qr-dialog-title").textContent = title;
   $("#qr-dialog-subtitle").textContent = subtitle;
   state.qrDownloadName = `${safeFileName(title)}-nox.png`;
+  state.qrShareUrl = publicUrl;
+  $("#qr-public-link").hidden = !publicUrl;
+  $("#qr-public-url").value = publicUrl;
   new QRCode(container, {
     text: `NOX1:${token}`,
     width: 320,
@@ -2119,19 +2158,28 @@ $("#new-guest-form").addEventListener("submit", async (event) => {
     form.reset();
     toast("Invitación personal creada.");
     await openEvent(selected.id);
-    showAccessQr(guest.qrToken, guestName, `${selected.name} · Invitación personal`);
+    showAccessQr(guest.qrToken, guestName, `${selected.name} · Invitación personal`, invitationPublicUrl(guest.qrToken));
   } catch (error) { toast(error.message, true); }
 });
 
 $("#event-guests-table").addEventListener("click", async (event) => {
   const qrButton = event.target.closest("[data-guest-qr]");
+  const shareButton = event.target.closest("[data-guest-share]");
   const reissueButton = event.target.closest("[data-guest-reissue]");
   const statusButton = event.target.closest("[data-guest-status]");
-  const guestId = Number(qrButton?.dataset.guestQr || reissueButton?.dataset.guestReissue || statusButton?.dataset.guestStatus || 0);
+  const guestId = Number(qrButton?.dataset.guestQr || shareButton?.dataset.guestShare || reissueButton?.dataset.guestReissue || statusButton?.dataset.guestStatus || 0);
   const guest = state.eventGuests.find((item) => Number(item.id) === guestId);
   if (!guest || !state.selectedEvent) return;
   if (qrButton) {
-    showAccessQr(guest.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`);
+    showAccessQr(guest.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`, invitationPublicUrl(guest.qrToken));
+    return;
+  }
+  if (shareButton) {
+    try {
+      await shareInvitationLink(guest, state.selectedEvent.name);
+    } catch (error) {
+      if (error.name !== "AbortError") toast("No fue posible compartir el enlace.", true);
+    }
     return;
   }
   if (reissueButton) {
@@ -2140,7 +2188,7 @@ $("#event-guests-table").addEventListener("click", async (event) => {
       const result = await api(`/api/event-guests/${guest.id}/reissue`, { method: "POST", body: JSON.stringify({}) });
       await openEvent(state.selectedEvent.id);
       toast("QR reemplazado. El código anterior quedó invalidado.");
-      showAccessQr(result.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`);
+      showAccessQr(result.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`, invitationPublicUrl(result.qrToken));
     } catch (error) { toast(error.message, true); }
     return;
   }
@@ -2173,6 +2221,34 @@ $("#share-qr").addEventListener("click", async () => {
     await navigator.share({ title: $("#qr-dialog-title").textContent, files: [file] });
   } catch (error) {
     if (error.name !== "AbortError") toast(error.message, true);
+  }
+});
+
+$("#copy-invitation-link").addEventListener("click", async () => {
+  if (!state.qrShareUrl) return;
+  try {
+    await copyText(state.qrShareUrl);
+    toast("Enlace público copiado.");
+  } catch {
+    toast("No fue posible copiar el enlace.", true);
+  }
+});
+
+$("#share-invitation-link").addEventListener("click", async () => {
+  if (!state.qrShareUrl) return;
+  try {
+    if (navigator.share) {
+      await navigator.share({
+        title: `Invitación · ${$("#qr-dialog-title").textContent}`,
+        text: "Esta es tu invitación personal a NOX.",
+        url: state.qrShareUrl
+      });
+      return;
+    }
+    await copyText(state.qrShareUrl);
+    toast("Enlace público copiado.");
+  } catch (error) {
+    if (error.name !== "AbortError") toast("No fue posible compartir el enlace.", true);
   }
 });
 
