@@ -11,38 +11,38 @@ SET time_zone = '-05:00';
 
 USE `noxpana_noxpa`;
 
-DROP PROCEDURE IF EXISTS nox_migrate_inventory_deletion;
+-- Se usan sentencias preparadas en lugar de procedimientos para que la
+-- importación funcione igual desde phpMyAdmin y desde la terminal.
+SET @nox_add_inventory_deleted_at = IF(
+  EXISTS(
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'inventory_items'
+      AND column_name = 'deleted_at'
+  ),
+  'SELECT 1',
+  'ALTER TABLE inventory_items ADD COLUMN deleted_at DATETIME NULL AFTER active'
+);
 
-DELIMITER $$
+PREPARE nox_inventory_migration_statement
+FROM @nox_add_inventory_deleted_at;
+EXECUTE nox_inventory_migration_statement;
+DEALLOCATE PREPARE nox_inventory_migration_statement;
 
-CREATE PROCEDURE nox_migrate_inventory_deletion()
-BEGIN
-  DECLARE column_exists INT DEFAULT 0;
+SET @nox_add_product_deleted_at = IF(
+  EXISTS(
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'products'
+      AND column_name = 'deleted_at'
+  ),
+  'SELECT 1',
+  'ALTER TABLE products ADD COLUMN deleted_at DATETIME NULL AFTER active'
+);
 
-  SELECT COUNT(*) INTO column_exists
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'inventory_items'
-    AND column_name = 'deleted_at';
-
-  IF column_exists = 0 THEN
-    ALTER TABLE inventory_items
-      ADD COLUMN deleted_at DATETIME NULL AFTER active;
-  END IF;
-
-  SELECT COUNT(*) INTO column_exists
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'products'
-    AND column_name = 'deleted_at';
-
-  IF column_exists = 0 THEN
-    ALTER TABLE products
-      ADD COLUMN deleted_at DATETIME NULL AFTER active;
-  END IF;
-END$$
-
-DELIMITER ;
-
-CALL nox_migrate_inventory_deletion();
-DROP PROCEDURE IF EXISTS nox_migrate_inventory_deletion;
+PREPARE nox_product_migration_statement
+FROM @nox_add_product_deleted_at;
+EXECUTE nox_product_migration_statement;
+DEALLOCATE PREPARE nox_product_migration_statement;
