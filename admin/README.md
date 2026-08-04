@@ -89,8 +89,9 @@ riesgo) el archivo idempotente:
 /home/noxpana/public_html/admin/db/migrate_inventory_deletion.sql
 ```
 
-Esta migración solo agrega la columna `deleted_at` a `inventory_items` y
-`products`; no elimina ni modifica existencias, compras, ventas, cuentas o
+Esta migración agrega `deleted_at` a `inventory_items` y `products`. En bases
+anteriores también crea `reserved_stock` con valor inicial cero cuando todavía
+no existe; no elimina ni modifica existencias, compras, ventas, cuentas o
 auditorías.
 
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
