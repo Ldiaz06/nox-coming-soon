@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   minimum_stock DECIMAL(14,4) NOT NULL DEFAULT 0,
   average_cost DECIMAL(14,4) NOT NULL DEFAULT 0,
   active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -119,6 +120,7 @@ CREATE TABLE IF NOT EXISTS products (
   target_margin DECIMAL(5,4) NOT NULL DEFAULT 0.7000,
   image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default-v3.webp',
   active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -440,6 +442,30 @@ BEGIN
   DECLARE secondary_column_exists INT DEFAULT 0;
   DECLARE index_exists INT DEFAULT 0;
   DECLARE constraint_exists INT DEFAULT 0;
+
+  -- La eliminación del catálogo es lógica: conserva compras, ventas y
+  -- auditoría, pero oculta el registro de la operación diaria.
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'deleted_at';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      ADD COLUMN deleted_at DATETIME NULL AFTER active;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'products'
+    AND column_name = 'deleted_at';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE products
+      ADD COLUMN deleted_at DATETIME NULL AFTER active;
+  END IF;
 
   -- El flujo de compras de NOX no administra proveedores. En instalaciones
   -- anteriores se eliminan de forma segura la relación, la columna y la tabla.

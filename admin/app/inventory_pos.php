@@ -46,7 +46,7 @@ function inventory_items(array $params = [])
              LIMIT 1
            )
          LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id";
-    $where = ' WHERE i.active = TRUE';
+    $where = ' WHERE i.active = TRUE AND i.deleted_at IS NULL';
     $values = [];
     if ($search !== '') {
         $where .= " AND LOWER(CONCAT_WS(' ', i.sku, i.name, i.category, last_line.package_name)) LIKE ?";
@@ -104,7 +104,7 @@ function inventory_item_options(array $params = [])
              ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
              LIMIT 1
            )
-         WHERE i.active = TRUE ORDER BY i.category, i.name'
+         WHERE i.active = TRUE AND i.deleted_at IS NULL ORDER BY i.category, i.name'
     )->fetchAll();
     $presentations = db()->query(
         "SELECT package_name AS name, units_per_package AS unitsPerPackage
@@ -120,10 +120,10 @@ function inventory_products(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $search = catalog_search();
-    $where = '';
+    $where = ' WHERE p.deleted_at IS NULL';
     $values = [];
     if ($search !== '') {
-        $where = " WHERE LOWER(CONCAT_WS(' ', p.sku, p.name, p.category, p.barcode)) LIKE ?";
+        $where .= " AND LOWER(CONCAT_WS(' ', p.sku, p.name, p.category, p.barcode)) LIKE ?";
         $values[] = '%' . strtolower($search) . '%';
     }
     $countStatement = db()->prepare("SELECT COUNT(*) FROM products p{$where}");
@@ -306,7 +306,7 @@ function inventory_item_update(array $params)
                         lead_time_days AS leadTimeDays, safety_stock_days AS safetyStockDays,
                         target_stock_days AS targetStockDays, current_stock AS currentStock,
                         reserved_stock AS reservedStock
-                 FROM inventory_items WHERE id = ? FOR UPDATE'
+                 FROM inventory_items WHERE id = ? AND deleted_at IS NULL FOR UPDATE'
             );
             $statement->execute([$itemId]);
             $before = $statement->fetch();
@@ -342,6 +342,118 @@ function inventory_item_update(array $params)
         throw $error;
     }
     json_response(['id' => $itemId]);
+}
+
+function inventory_item_delete(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $itemId = path_id($params);
+
+    transaction(function (PDO $pdo) use ($user, $itemId): void {
+        $statement = $pdo->prepare(
+            'SELECT id, sku, name, current_stock AS currentStock, reserved_stock AS reservedStock
+             FROM inventory_items WHERE id = ? AND deleted_at IS NULL FOR UPDATE'
+        );
+        $statement->execute([$itemId]);
+        $before = $statement->fetch();
+        if (!$before) throw new ApiError('Artículo no encontrado.', 404);
+        if ((float) $before['reservedStock'] > 0.000001) {
+            throw new ApiError('El artículo está reservado en una cuenta abierta. Cobre o vacíe la cuenta antes de eliminarlo.', 409);
+        }
+
+        $products = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM product_recipes recipe
+             JOIN products product ON product.id = recipe.product_id
+             WHERE recipe.inventory_item_id = ? AND product.deleted_at IS NULL'
+        );
+        $products->execute([$itemId]);
+        if ((int) $products->fetchColumn() > 0) {
+            throw new ApiError('El artículo forma parte de productos de venta. Elimine primero esos productos.', 409);
+        }
+
+        $pdo->prepare(
+            "UPDATE inventory_items
+             SET active = FALSE, current_stock = 0, reserved_stock = 0,
+                 sku = CONCAT('__eliminado_articulo_', id, '_', UNIX_TIMESTAMP()),
+                 deleted_at = NOW()
+             WHERE id = ?"
+        )->execute([$itemId]);
+        audit_log($pdo, $user, 'delete', 'inventory_item', $itemId, $before, [
+            'deleted' => true, 'discardedStock' => (float) $before['currentStock'],
+        ]);
+    });
+
+    no_content();
+}
+
+function inventory_items_delete(array $params = [])
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $body = request_body();
+    $ids = array_values(array_unique(array_map('intval', is_array($body['ids'] ?? null) ? $body['ids'] : [])));
+    $ids = array_values(array_filter($ids, static fn (int $id): bool => $id > 0));
+    if (!$ids || count($ids) > 500) {
+        throw new ApiError('Seleccione entre 1 y 500 artículos.');
+    }
+
+    $deleted = transaction(function (PDO $pdo) use ($user, $ids): int {
+        $in = placeholders(count($ids));
+        $statement = $pdo->prepare(
+            "SELECT id, sku, name, current_stock AS currentStock, reserved_stock AS reservedStock
+             FROM inventory_items
+             WHERE id IN ({$in}) AND deleted_at IS NULL
+             ORDER BY id FOR UPDATE"
+        );
+        $statement->execute($ids);
+        $items = $statement->fetchAll();
+        if (count($items) !== count($ids)) {
+            throw new ApiError('Uno o más artículos ya no están disponibles.', 409);
+        }
+        foreach ($items as $item) {
+            if ((float) $item['reservedStock'] > 0.000001) {
+                throw new ApiError("El artículo {$item['name']} está reservado en una cuenta abierta.", 409);
+            }
+        }
+
+        $products = $pdo->prepare(
+            "SELECT item.name AS itemName, product.name AS productName
+             FROM product_recipes recipe
+             JOIN inventory_items item ON item.id = recipe.inventory_item_id
+             JOIN products product ON product.id = recipe.product_id
+             WHERE recipe.inventory_item_id IN ({$in}) AND product.deleted_at IS NULL
+             ORDER BY item.name, product.name LIMIT 1"
+        );
+        $products->execute($ids);
+        $dependency = $products->fetch();
+        if ($dependency) {
+            throw new ApiError(
+                "El artículo {$dependency['itemName']} forma parte de {$dependency['productName']}. Elimine primero ese producto.",
+                409
+            );
+        }
+
+        $update = $pdo->prepare(
+            "UPDATE inventory_items
+             SET active = FALSE, current_stock = 0, reserved_stock = 0,
+                 sku = CONCAT('__eliminado_articulo_', id, '_', UNIX_TIMESTAMP()),
+                 deleted_at = NOW()
+             WHERE id IN ({$in}) AND deleted_at IS NULL"
+        );
+        $update->execute($ids);
+        audit_log($pdo, $user, 'delete_bulk', 'inventory_item', null, [
+            'items' => array_map(static fn (array $item): array => [
+                'id' => (int) $item['id'],
+                'name' => $item['name'],
+                'discardedStock' => (float) $item['currentStock'],
+            ], $items),
+        ], ['deleted' => true, 'count' => count($items)]);
+        return count($items);
+    });
+
+    json_response(['deleted' => $deleted]);
 }
 
 function inventory_product_create(array $params = [])
@@ -461,7 +573,7 @@ function inventory_product_update(array $params)
             $product = $pdo->prepare(
                 'SELECT id, sku, barcode, name, category, sale_price AS salePrice,
                         tax_rate AS taxRate, target_margin AS targetMargin, active
-                 FROM products WHERE id = ? FOR UPDATE'
+                 FROM products WHERE id = ? AND deleted_at IS NULL FOR UPDATE'
             );
             $product->execute([$productId]);
             $before = $product->fetch();
@@ -518,6 +630,161 @@ function inventory_product_update(array $params)
     json_response($result);
 }
 
+function inventory_product_delete(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $productId = path_id($params);
+
+    transaction(function (PDO $pdo) use ($user, $productId): void {
+        $statement = $pdo->prepare(
+            'SELECT id, sku, barcode, name, active
+             FROM products WHERE id = ? AND deleted_at IS NULL FOR UPDATE'
+        );
+        $statement->execute([$productId]);
+        $before = $statement->fetch();
+        if (!$before) throw new ApiError('Producto no encontrado.', 404);
+
+        $openTabs = $pdo->prepare(
+            "SELECT COUNT(*)
+             FROM customer_tab_items item
+             JOIN customer_tabs tab ON tab.id = item.tab_id
+             WHERE item.product_id = ? AND tab.status = 'open'"
+        );
+        $openTabs->execute([$productId]);
+        if ((int) $openTabs->fetchColumn() > 0) {
+            throw new ApiError('El producto está cargado en una cuenta abierta. Cóbrela o retire el producto antes de eliminarlo.', 409);
+        }
+
+        $pdo->prepare(
+            "UPDATE products
+             SET active = FALSE, barcode = NULL,
+                 sku = CONCAT('__eliminado_producto_', id, '_', UNIX_TIMESTAMP()),
+                 deleted_at = NOW()
+             WHERE id = ?"
+        )->execute([$productId]);
+        audit_log($pdo, $user, 'delete', 'product', $productId, $before, ['deleted' => true]);
+    });
+
+    no_content();
+}
+
+function inventory_products_delete(array $params = [])
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $body = request_body();
+    $ids = array_values(array_unique(array_map('intval', is_array($body['ids'] ?? null) ? $body['ids'] : [])));
+    $ids = array_values(array_filter($ids, static fn (int $id): bool => $id > 0));
+    if (!$ids || count($ids) > 500) {
+        throw new ApiError('Seleccione entre 1 y 500 productos.');
+    }
+
+    $deleted = transaction(function (PDO $pdo) use ($user, $ids): int {
+        $in = placeholders(count($ids));
+        $statement = $pdo->prepare(
+            "SELECT id, sku, barcode, name, active
+             FROM products
+             WHERE id IN ({$in}) AND deleted_at IS NULL
+             ORDER BY id FOR UPDATE"
+        );
+        $statement->execute($ids);
+        $products = $statement->fetchAll();
+        if (count($products) !== count($ids)) {
+            throw new ApiError('Uno o más productos ya no están disponibles.', 409);
+        }
+
+        $openTabs = $pdo->prepare(
+            "SELECT product.name
+             FROM customer_tab_items item
+             JOIN customer_tabs tab ON tab.id = item.tab_id
+             JOIN products product ON product.id = item.product_id
+             WHERE item.product_id IN ({$in}) AND tab.status = 'open'
+             ORDER BY product.name LIMIT 1"
+        );
+        $openTabs->execute($ids);
+        $openProduct = $openTabs->fetchColumn();
+        if ($openProduct !== false) {
+            throw new ApiError("El producto {$openProduct} está cargado en una cuenta abierta.", 409);
+        }
+
+        $update = $pdo->prepare(
+            "UPDATE products
+             SET active = FALSE, barcode = NULL,
+                 sku = CONCAT('__eliminado_producto_', id, '_', UNIX_TIMESTAMP()),
+                 deleted_at = NOW()
+             WHERE id IN ({$in}) AND deleted_at IS NULL"
+        );
+        $update->execute($ids);
+        audit_log($pdo, $user, 'delete_bulk', 'product', null, [
+            'products' => array_map(static fn (array $product): array => [
+                'id' => (int) $product['id'], 'name' => $product['name'],
+            ], $products),
+        ], ['deleted' => true, 'count' => count($products)]);
+        return count($products);
+    });
+
+    json_response(['deleted' => $deleted]);
+}
+
+function inventory_reset(array $params = [])
+{
+    require_csrf();
+    $user = require_roles(['admin']);
+    $body = request_body();
+    if (($body['confirmation'] ?? '') !== 'REINICIAR') {
+        throw new ApiError('Escriba REINICIAR para confirmar.');
+    }
+
+    $result = transaction(function (PDO $pdo) use ($user): array {
+        $openTabs = (int) $pdo->query(
+            "SELECT COUNT(*)
+             FROM customer_tab_items item
+             JOIN customer_tabs tab ON tab.id = item.tab_id
+             JOIN products product ON product.id = item.product_id
+             WHERE tab.status = 'open' AND product.deleted_at IS NULL"
+        )->fetchColumn();
+        if ($openTabs > 0) {
+            throw new ApiError('Hay productos cargados en cuentas abiertas. Cóbrelas o vacíelas antes de reiniciar el inventario.', 409);
+        }
+        $reserved = (float) $pdo->query(
+            'SELECT COALESCE(SUM(reserved_stock), 0)
+             FROM inventory_items WHERE deleted_at IS NULL'
+        )->fetchColumn();
+        if ($reserved > 0.000001) {
+            throw new ApiError('Hay existencias reservadas. Cierre o vacíe las cuentas abiertas antes de reiniciar.', 409);
+        }
+
+        $productCount = (int) $pdo->query(
+            'SELECT COUNT(*) FROM products WHERE deleted_at IS NULL'
+        )->fetchColumn();
+        $itemCount = (int) $pdo->query(
+            'SELECT COUNT(*) FROM inventory_items WHERE deleted_at IS NULL'
+        )->fetchColumn();
+
+        $pdo->exec(
+            "UPDATE products
+             SET active = FALSE, barcode = NULL,
+                 sku = CONCAT('__eliminado_producto_', id, '_', UNIX_TIMESTAMP()),
+                 deleted_at = NOW()
+             WHERE deleted_at IS NULL"
+        );
+        $pdo->exec(
+            "UPDATE inventory_items
+             SET active = FALSE, current_stock = 0, reserved_stock = 0,
+                 sku = CONCAT('__eliminado_articulo_', id, '_', UNIX_TIMESTAMP()),
+                 deleted_at = NOW()
+             WHERE deleted_at IS NULL"
+        );
+        audit_log($pdo, $user, 'reset', 'inventory', null, [
+            'items' => $itemCount, 'products' => $productCount,
+        ], ['reset' => true]);
+        return ['items' => $itemCount, 'products' => $productCount];
+    });
+
+    json_response($result);
+}
+
 function inventory_product_image_upload(array $params = [])
 {
     require_csrf();
@@ -556,7 +823,7 @@ function inventory_product_image_upload(array $params = [])
     }
 
     $pdo = db();
-    $statement = $pdo->prepare('SELECT id, image_path FROM products WHERE id = ?');
+    $statement = $pdo->prepare('SELECT id, image_path FROM products WHERE id = ? AND deleted_at IS NULL');
     $statement->execute([$productId]);
     $product = $statement->fetch();
     if (!$product) {
@@ -577,7 +844,7 @@ function inventory_product_image_upload(array $params = [])
 
     try {
         transaction(function (PDO $transaction) use ($user, $productId, $product, $imagePath): void {
-            $update = $transaction->prepare('UPDATE products SET image_path = ? WHERE id = ?');
+            $update = $transaction->prepare('UPDATE products SET image_path = ? WHERE id = ? AND deleted_at IS NULL');
             $update->execute([$imagePath, $productId]);
             audit_log($transaction, $user, 'update_image', 'product', $productId, [
                 'imagePath' => $product['image_path'],
@@ -618,7 +885,7 @@ function inventory_movement_create(array $params = [])
     $notes = value_string($body, 'notes', 0, 500, false);
 
     $result = transaction(function (PDO $pdo) use ($user, $itemId, $type, $quantity, $notes): array {
-        $select = $pdo->prepare('SELECT id, current_stock, average_cost FROM inventory_items WHERE id = ? AND active = TRUE FOR UPDATE');
+        $select = $pdo->prepare('SELECT id, current_stock, average_cost FROM inventory_items WHERE id = ? AND active = TRUE AND deleted_at IS NULL FOR UPDATE');
         $select->execute([$itemId]);
         $item = $select->fetch();
         if (!$item) {
@@ -692,7 +959,7 @@ function inventory_purchase_create(array $params = [])
         foreach ($items as $line) {
             $select = $pdo->prepare(
                 'SELECT current_stock, average_cost, unit, package_name, units_per_package
-                 FROM inventory_items WHERE id = ? AND active = TRUE FOR UPDATE'
+                 FROM inventory_items WHERE id = ? AND active = TRUE AND deleted_at IS NULL FOR UPDATE'
             );
             $select->execute([$line['itemId']]);
             $item = $select->fetch();
@@ -752,7 +1019,7 @@ function pos_products(array $params = [])
                 COALESCE(MIN(GREATEST(0, i.current_stock - i.reserved_stock) / NULLIF(r.quantity, 0)), 0) AS available
          FROM products p LEFT JOIN product_recipes r ON r.product_id = p.id
          LEFT JOIN inventory_items i ON i.id = r.inventory_item_id
-         WHERE p.active = TRUE GROUP BY p.id';
+         WHERE p.active = TRUE AND p.deleted_at IS NULL GROUP BY p.id';
     $filters = ['available >= 1'];
     $values = [];
     if ($search !== '') {
@@ -883,7 +1150,7 @@ function pos_tab_item_set(array $params)
         $currentLine->execute([$tabId, $productId]);
         $currentQuantity = (float) ($currentLine->fetchColumn() ?: 0);
         $difference = $quantity - $currentQuantity;
-        $product = $pdo->prepare('SELECT id, sale_price FROM products WHERE id = ? AND active = TRUE FOR UPDATE');
+        $product = $pdo->prepare('SELECT id, sale_price FROM products WHERE id = ? AND active = TRUE AND deleted_at IS NULL FOR UPDATE');
         $product->execute([$productId]);
         $row = $product->fetch();
         if (!$row) throw new ApiError('El producto no está disponible.', 409);

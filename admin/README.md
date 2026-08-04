@@ -90,7 +90,9 @@ limpiar una cuenta se liberan; al cobrar se convierten en salida definitiva sin
 descontar dos veces. Una venta rápida se cobra sin dejar una cuenta pendiente.
 - Acceso mediante nombre de usuario, sin correo obligatorio.
 - Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
-- Artículos y productos editables sin alterar compras, movimientos ni ventas históricas.
+- Artículos y productos editables o eliminables sin alterar compras, movimientos ni ventas históricas.
+- Selección múltiple de artículos y productos para eliminarlos en una sola operación segura.
+- Reinicio completo del catálogo de inventario, exclusivo del administrador y protegido por confirmación escrita.
 - Inventario conectado a recetas y ventas.
 - Precio de venta sugerido según el costo actual de la receta y el margen bruto objetivo.
 - Análisis de rentabilidad por producto, merma valorada y planificación de reposición.

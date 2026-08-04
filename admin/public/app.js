@@ -8,6 +8,8 @@ const state = {
   inventoryRows: [],
   articleRows: [],
   inventoryProducts: [],
+  selectedArticleIds: new Set(),
+  selectedProductIds: new Set(),
   purchasePresentations: [],
   users: [],
   cashSessions: [],
@@ -1158,7 +1160,7 @@ function renderInventory() {
       <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
       <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>Promedio ponderado de compras recibidas.</small></td>
       <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
-      <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button> <button class="table-action" data-edit-inventory-id="${item.id}">Editar</button></td>
+      <td><button class="table-action" data-adjust-id="${item.id}">Ajustar</button> <button class="table-action" data-edit-inventory-id="${item.id}">Editar</button> <button class="table-action table-action--danger" data-delete-inventory-item="${item.id}">Eliminar</button></td>
     </tr>`;
   }).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos físicos con esta búsqueda.</td></tr>';
 }
@@ -1174,8 +1176,9 @@ function renderInventoryProducts() {
     const margin = Number(product.grossMargin || 0);
     const target = Number(product.targetMargin || 0);
     const hasCustomPhoto = product.imageUrl && product.imageUrl !== DEFAULT_PRODUCT_IMAGE;
-    return `<tr><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell"><img class="product-thumb" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async"><div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${hasCustomPhoto ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td><td><button type="button" class="table-action" data-edit-product="${product.id}">Editar</button></td></tr>`;
-  }).join("") || '<tr><td colspan="10" class="empty-state">No hay productos de venta registrados.</td></tr>';
+    return `<tr><td class="select-column"><input class="row-select" type="checkbox" data-select-product="${product.id}" aria-label="Seleccionar ${escapeHtml(product.name)}" ${state.selectedProductIds.has(Number(product.id)) ? "checked" : ""}></td><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell"><img class="product-thumb" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async"><div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${hasCustomPhoto ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td><td><button type="button" class="table-action" data-edit-product="${product.id}">Editar</button> <button type="button" class="table-action table-action--danger" data-delete-product="${product.id}">Eliminar</button></td></tr>`;
+  }).join("") || '<tr><td colspan="11" class="empty-state">No hay productos de venta registrados.</td></tr>';
+  updateBulkSelectionControls("products");
 }
 
 function renderArticles() {
@@ -1183,14 +1186,30 @@ function renderArticles() {
   const pagination = state.pagination.articles;
   $("#articles-summary").textContent = `${pagination.total} artículos · mostrando ${pagination.from}–${pagination.to}`;
   $("#articles-table").innerHTML = items.map((item) => `<tr>
+    <td class="select-column"><input class="row-select" type="checkbox" data-select-article="${item.id}" aria-label="Seleccionar ${escapeHtml(item.name)}" ${state.selectedArticleIds.has(Number(item.id)) ? "checked" : ""}></td>
     <td>${escapeHtml(item.sku)}</td>
     <td><strong>${escapeHtml(item.name)}</strong></td>
     <td>${escapeHtml(item.category)}</td>
     <td>${escapeHtml(unitNames[item.unit] || item.unit)}</td>
     <td>${item.referencePackageName ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small>` : '<span class="badge">Sin compras</span>'}</td>
     <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
-    <td><button type="button" class="table-action" data-edit-item="${item.id}">Editar</button></td>
-  </tr>`).join("") || '<tr><td colspan="7" class="empty-state">No hay artículos con este filtro.</td></tr>';
+    <td><button type="button" class="table-action" data-edit-item="${item.id}">Editar</button> <button type="button" class="table-action table-action--danger" data-delete-item="${item.id}">Eliminar</button></td>
+  </tr>`).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos con este filtro.</td></tr>';
+  updateBulkSelectionControls("articles");
+}
+
+function updateBulkSelectionControls(type) {
+  const isArticles = type === "articles";
+  const selected = isArticles ? state.selectedArticleIds : state.selectedProductIds;
+  const rows = isArticles ? state.articleRows : state.inventoryProducts;
+  const selectAll = $(isArticles ? "#select-all-articles" : "#select-all-products");
+  const button = $(isArticles ? "#delete-selected-articles" : "#delete-selected-products");
+  const selectedOnPage = rows.filter((row) => selected.has(Number(row.id))).length;
+  selectAll.checked = rows.length > 0 && selectedOnPage === rows.length;
+  selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < rows.length;
+  selectAll.disabled = rows.length === 0;
+  button.disabled = selected.size === 0;
+  button.textContent = `Eliminar seleccionados (${selected.size})`;
 }
 
 function inventoryOptions() {
@@ -1836,6 +1855,12 @@ bindPagination("articles-pagination", "articles", loadArticlesPage);
 bindPagination("products-pagination", "products", loadProductsPage);
 $$("[data-go-inventory]").forEach((button) => button.addEventListener("click", () => navigate("inventory")));
 $("#inventory-table").addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-delete-inventory-item]");
+  if (deleteButton) {
+    const item = state.inventoryRows.find((row) => Number(row.id) === Number(deleteButton.dataset.deleteInventoryItem));
+    if (item) await deleteInventoryItem(item);
+    return;
+  }
   const editButton = event.target.closest("[data-edit-inventory-id]");
   if (editButton) {
     const item = state.inventoryRows.find((row) => Number(row.id) === Number(editButton.dataset.editInventoryId));
@@ -1852,13 +1877,40 @@ $("#inventory-table").addEventListener("click", async (event) => {
   $("#adjust-item-name").textContent = `${item.name} · Existencia ${Number(item.currentStock).toFixed(3)} ${unitNames[item.unit] || item.unit}`;
   $("#adjust-dialog").showModal();
 });
-$("#articles-table").addEventListener("click", (event) => {
+$("#articles-table").addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-delete-item]");
+  if (deleteButton) {
+    const item = state.articleRows.find((row) => Number(row.id) === Number(deleteButton.dataset.deleteItem));
+    if (item) await deleteInventoryItem(item);
+    return;
+  }
   const button = event.target.closest("[data-edit-item]");
   if (!button) return;
   const item = state.articleRows.find((row) => Number(row.id) === Number(button.dataset.editItem));
   if (item) prepareItemForm(item);
 });
-$("#inventory-products-table").addEventListener("click", (event) => {
+$("#articles-table").addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-select-article]");
+  if (!checkbox) return;
+  const id = Number(checkbox.dataset.selectArticle);
+  if (checkbox.checked) state.selectedArticleIds.add(id);
+  else state.selectedArticleIds.delete(id);
+  updateBulkSelectionControls("articles");
+});
+$("#select-all-articles").addEventListener("change", (event) => {
+  state.articleRows.forEach((item) => {
+    if (event.currentTarget.checked) state.selectedArticleIds.add(Number(item.id));
+    else state.selectedArticleIds.delete(Number(item.id));
+  });
+  renderArticles();
+});
+$("#inventory-products-table").addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-delete-product]");
+  if (deleteButton) {
+    const product = state.inventoryProducts.find((row) => Number(row.id) === Number(deleteButton.dataset.deleteProduct));
+    if (product) await deleteInventoryProduct(product);
+    return;
+  }
   const editButton = event.target.closest("[data-edit-product]");
   if (editButton) {
     const product = state.inventoryProducts.find((row) => Number(row.id) === Number(editButton.dataset.editProduct));
@@ -1875,6 +1927,138 @@ $("#inventory-products-table").addEventListener("click", (event) => {
   $("#product-image-name").textContent = product.name;
   setImagePreview(form.elements.image, $("#product-image-dialog-preview"));
   $("#product-image-dialog").showModal();
+});
+$("#inventory-products-table").addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-select-product]");
+  if (!checkbox) return;
+  const id = Number(checkbox.dataset.selectProduct);
+  if (checkbox.checked) state.selectedProductIds.add(id);
+  else state.selectedProductIds.delete(id);
+  updateBulkSelectionControls("products");
+});
+$("#select-all-products").addEventListener("change", (event) => {
+  state.inventoryProducts.forEach((product) => {
+    if (event.currentTarget.checked) state.selectedProductIds.add(Number(product.id));
+    else state.selectedProductIds.delete(Number(product.id));
+  });
+  renderInventoryProducts();
+});
+
+async function deleteInventoryItem(item) {
+  if (!window.confirm(`¿Eliminar el artículo "${item.name}"? Se retirará del catálogo y su existencia quedará en cero.`)) return;
+  try {
+    await api(`/api/inventory/items/${item.id}`, { method: "DELETE" });
+    state.selectedArticleIds.delete(Number(item.id));
+    state.catalogReady = false;
+    await loadInventory();
+    toast(`Artículo "${item.name}" eliminado.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function deleteInventoryProduct(product) {
+  if (!window.confirm(`¿Eliminar el producto "${product.name}" del catálogo y del POS?`)) return;
+  try {
+    await api(`/api/inventory/products/${product.id}`, { method: "DELETE" });
+    state.selectedProductIds.delete(Number(product.id));
+    state.catalogReady = false;
+    await loadInventory();
+    toast(`Producto "${product.name}" eliminado.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+$("#delete-selected-articles").addEventListener("click", async () => {
+  const ids = [...state.selectedArticleIds];
+  if (!ids.length || !window.confirm(`¿Eliminar los ${ids.length} artículos seleccionados? Sus existencias quedarán en cero.`)) return;
+  const button = $("#delete-selected-articles");
+  button.disabled = true;
+  button.textContent = "Eliminando…";
+  try {
+    const result = await api("/api/inventory/items", {
+      method: "DELETE",
+      body: JSON.stringify({ ids })
+    });
+    state.selectedArticleIds.clear();
+    state.catalogReady = false;
+    await loadInventory();
+    toast(`${result.deleted} artículos eliminados.`);
+  } catch (error) {
+    toast(error.message, true);
+    updateBulkSelectionControls("articles");
+  }
+});
+
+$("#delete-selected-products").addEventListener("click", async () => {
+  const ids = [...state.selectedProductIds];
+  if (!ids.length || !window.confirm(`¿Eliminar los ${ids.length} productos seleccionados del catálogo y del POS?`)) return;
+  const button = $("#delete-selected-products");
+  button.disabled = true;
+  button.textContent = "Eliminando…";
+  try {
+    const result = await api("/api/inventory/products", {
+      method: "DELETE",
+      body: JSON.stringify({ ids })
+    });
+    state.selectedProductIds.clear();
+    state.catalogReady = false;
+    await loadInventory();
+    toast(`${result.deleted} productos eliminados.`);
+  } catch (error) {
+    toast(error.message, true);
+    updateBulkSelectionControls("products");
+  }
+});
+
+function openInventoryResetDialog() {
+  if (state.user?.role !== "admin") return;
+  const form = $("#reset-inventory-form");
+  form.reset();
+  $("#reset-inventory-error").textContent = "";
+  $("#confirm-reset-inventory").disabled = true;
+  $("#confirm-reset-inventory").textContent = "Eliminar todo";
+  $("#reset-inventory-dialog").showModal();
+  form.elements.confirmation.focus();
+}
+
+$("#reset-inventory").addEventListener("click", openInventoryResetDialog);
+$$("[data-reset-inventory]").forEach((button) => button.addEventListener("click", openInventoryResetDialog));
+$("#reset-inventory-form [name=confirmation]").addEventListener("input", (event) => {
+  $("#confirm-reset-inventory").disabled = event.currentTarget.value !== "REINICIAR";
+  $("#reset-inventory-error").textContent = "";
+});
+$("#reset-inventory-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") return $("#reset-inventory-dialog").close();
+  const form = event.currentTarget;
+  if (form.elements.confirmation.value !== "REINICIAR") {
+    $("#reset-inventory-error").textContent = "Escriba REINICIAR para confirmar.";
+    return;
+  }
+  const button = $("#confirm-reset-inventory");
+  button.disabled = true;
+  button.textContent = "Eliminando…";
+  try {
+    const result = await api("/api/inventory/reset", {
+      method: "DELETE",
+      body: JSON.stringify({ confirmation: form.elements.confirmation.value })
+    });
+    $("#reset-inventory-dialog").close();
+    state.catalogReady = false;
+    state.selectedArticleIds.clear();
+    state.selectedProductIds.clear();
+    state.pagination.inventory.page = 1;
+    state.pagination.articles.page = 1;
+    state.pagination.products.page = 1;
+    await loadInventory();
+    toast(`Inventario reiniciado: ${result.items} artículos y ${result.products} productos eliminados.`);
+  } catch (error) {
+    $("#reset-inventory-error").textContent = error.message;
+    button.disabled = form.elements.confirmation.value !== "REINICIAR";
+    button.textContent = "Eliminar todo";
+  }
 });
 $("#product-image-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-dialog-preview")));
 $("#product-image-form").addEventListener("submit", async (event) => { event.preventDefault(); if (event.submitter?.value === "cancel") return $("#product-image-dialog").close(); const form = event.currentTarget; const image = form.elements.image.files?.[0]; if (!image) return toast("Seleccione una fotografía.", true); try { await uploadProductImage(Number(form.elements.productId.value), image); $("#product-image-dialog").close(); form.reset(); setImagePreview(form.elements.image, $("#product-image-dialog-preview")); toast("Fotografía del producto actualizada."); await loadInventory(); } catch (error) { toast(error.message, true); } });

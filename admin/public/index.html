@@ -241,7 +241,7 @@
       </section>
 
       <section id="section-inventory" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">EXISTENCIAS</p><h2>Inventario</h2></div><button id="show-purchase" class="button button--primary">Registrar compra</button></div>
+        <div class="section-heading"><div><p class="eyebrow">EXISTENCIAS</p><h2>Inventario</h2></div><div class="heading-actions"><button id="reset-inventory" class="button button--danger" type="button" data-roles="admin">Eliminar todo</button><button id="show-purchase" class="button button--primary">Registrar compra</button></div></div>
         <div class="inventory-concepts" aria-label="Diferencia entre artículos y productos">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Existencias reales</h3><p>Consulte cantidades, costos, mínimos y cobertura de todos los artículos almacenados.</p></div></article>
           <article class="concept-card"><span class="concept-number">02</span><div><h3>Entradas y ajustes</h3><p>Registre compras por presentación y use Ajustar para conteos físicos, mermas o correcciones.</p></div></article>
@@ -256,7 +256,7 @@
       </section>
 
       <section id="section-articles" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO FÍSICO</p><h2>Artículos</h2></div><button id="show-new-item" class="button button--primary">Agregar artículo</button></div>
+        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO FÍSICO</p><h2>Artículos</h2></div><div class="heading-actions"><button class="button button--danger" type="button" data-reset-inventory data-roles="admin">Eliminar todo</button><button id="show-new-item" class="button button--primary">Agregar artículo</button></div></div>
         <div class="inventory-concepts">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Qué se almacena</h3><p>Cervezas, botellas, latas, mezcladores, alimentos e ingredientes que se compran y se cuentan físicamente.</p></div></article>
           <article class="concept-card"><span class="concept-number">02</span><div><h3>Cómo se controla</h3><p>El artículo conserva una unidad base. Cada compra registra por separado presentación, contenido y precio realmente pagado.</p></div></article>
@@ -274,11 +274,11 @@
           <label>Cobertura objetivo (días)<input name="targetStockDays" type="number" min="1" max="730" step="1" value="14" required><small class="field-hint">Inventario deseado después de una compra.</small></label>
           <div class="form-actions wide-field"><button id="item-form-submit" class="button button--primary" type="submit">Guardar artículo físico</button><button class="button button--ghost" type="button" data-cancel-form="new-item-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Artículos configurados</h3></div><span id="articles-summary" class="panel-note"></span></div><div class="table-tools"><input id="articles-search" type="search" placeholder="Buscar artículo"><button class="text-button" type="button" data-go-inventory>Ver existencias y ajustes →</button></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Unidad de control</th><th>Última compra / referencia</th><th>Costo promedio</th><th></th></tr></thead><tbody id="articles-table"></tbody></table></div><nav id="articles-pagination" class="pagination" aria-label="Páginas de artículos" hidden></nav></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Artículos configurados</h3></div><span id="articles-summary" class="panel-note"></span></div><div class="table-tools"><input id="articles-search" type="search" placeholder="Buscar artículo"><div class="bulk-actions"><button id="delete-selected-articles" class="button button--danger button--compact" type="button" disabled>Eliminar seleccionados (0)</button><button class="text-button" type="button" data-go-inventory>Ver existencias y ajustes →</button></div></div><div class="table-scroll"><table><thead><tr><th class="select-column"><input id="select-all-articles" class="row-select" type="checkbox" aria-label="Seleccionar todos los artículos de esta página"></th><th>SKU</th><th>Artículo</th><th>Categoría</th><th>Unidad de control</th><th>Última compra / referencia</th><th>Costo promedio</th><th></th></tr></thead><tbody id="articles-table"></tbody></table></div><nav id="articles-pagination" class="pagination" aria-label="Páginas de artículos" hidden></nav></article>
       </section>
 
       <section id="section-products" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO DEL POS</p><h2>Productos de venta</h2></div><button id="show-new-product" class="button button--primary">Crear producto</button></div>
+        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO DEL POS</p><h2>Productos de venta</h2></div><div class="heading-actions"><button class="button button--danger" type="button" data-reset-inventory data-roles="admin">Eliminar todo</button><button id="show-new-product" class="button button--primary">Crear producto</button></div></div>
         <div class="inventory-concepts">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Lo que se vende</h3><p>Productos visibles en el POS: botellas, tragos, cócteles, cervezas, alimentos y servicios cobrables.</p></div></article>
           <article class="concept-card"><span class="concept-number">02</span><div><h3>Receta automática</h3><p>Cada venta descuenta los artículos y cantidades indicados, calcula el costo y propone un precio rentable.</p></div></article>
@@ -297,7 +297,7 @@
           <div id="product-pricing-preview" class="pricing-preview wide-field" role="status" aria-live="polite"></div>
           <div class="form-actions wide-field"><button id="product-form-submit" class="button button--primary" type="submit">Guardar producto de venta</button><button class="button button--ghost" type="button" data-cancel-form="new-product-form">Cancelar</button></div>
         </form>
-        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCTOS DE VENTA</p><h3>Catálogo y composición del POS</h3></div><span id="products-summary" class="panel-note"></span></div><div class="table-tools"><input id="products-search" type="search" placeholder="Buscar producto, SKU o código"><span>La búsqueda consulta todo el catálogo</span></div><div class="table-scroll"><table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Costo</th><th>Sugerido</th><th>Margen</th><th>Artículos descontados por venta</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-products-table"></tbody></table></div><nav id="products-pagination" class="pagination" aria-label="Páginas de productos" hidden></nav></article>
+        <article class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCTOS DE VENTA</p><h3>Catálogo y composición del POS</h3></div><span id="products-summary" class="panel-note"></span></div><div class="table-tools"><input id="products-search" type="search" placeholder="Buscar producto, SKU o código"><div class="bulk-actions"><span>La búsqueda consulta todo el catálogo</span><button id="delete-selected-products" class="button button--danger button--compact" type="button" disabled>Eliminar seleccionados (0)</button></div></div><div class="table-scroll"><table><thead><tr><th class="select-column"><input id="select-all-products" class="row-select" type="checkbox" aria-label="Seleccionar todos los productos de esta página"></th><th>SKU</th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Costo</th><th>Sugerido</th><th>Margen</th><th>Artículos descontados por venta</th><th>Estado</th><th></th></tr></thead><tbody id="inventory-products-table"></tbody></table></div><nav id="products-pagination" class="pagination" aria-label="Páginas de productos" hidden></nav></article>
       </section>
 
       <section id="section-insights" class="page-section" hidden>
@@ -439,10 +439,22 @@
       </div>
     </form>
   </dialog>
+  <dialog id="reset-inventory-dialog" class="delete-event-dialog">
+    <form method="dialog" id="reset-inventory-form" class="dialog-form">
+      <div><p class="eyebrow">ACCIÓN IRREVERSIBLE</p><h2>Reiniciar inventario</h2></div>
+      <p class="delete-event-warning">Se eliminarán del catálogo todos los artículos y productos, y las existencias quedarán en cero. Las ventas, compras y registros de auditoría anteriores se conservarán.</p>
+      <label>Para confirmar, escriba exactamente <strong>REINICIAR</strong><input name="confirmation" maxlength="10" autocomplete="off" required></label>
+      <p id="reset-inventory-error" class="form-error"></p>
+      <div class="form-actions">
+        <button id="confirm-reset-inventory" class="button button--danger" value="submit" disabled>Eliminar todo</button>
+        <button class="button button--ghost" value="cancel">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260803-20" defer></script>
+  <script src="/app.js?v=20260804-22" defer></script>
 </body>
 </html>
