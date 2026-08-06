@@ -1,2 +1,5 @@
 # NOX Control no depende de mod_rewrite: la interfaz usa el DirectoryIndex
 # estándar de Apache y la API utiliza index.php?api_path=...
+
+# Algunos navegadores solicitan esta ruta antes de leer el <link rel="icon">.
+Redirect 302 /favicon.ico /favicon.svg

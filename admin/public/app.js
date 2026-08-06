@@ -289,7 +289,8 @@ async function initialize() {
   $("#hours-filter [name=start]").value = `${today.slice(0, 8)}01`;
   try {
     const { user, csrf } = await api("/api/auth/me");
-    showApp(user, csrf);
+    if (user) showApp(user, csrf);
+    else showLogin();
   } catch {
     showLogin();
   }

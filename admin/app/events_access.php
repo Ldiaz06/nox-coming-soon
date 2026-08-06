@@ -36,6 +36,175 @@ function event_optional_capacity(array $body): ?int
     return (int) $capacity;
 }
 
+function event_guest_lists_schema_ready(PDO $pdo): bool
+{
+    try {
+        $pdo->query(
+            'SELECT guest.guest_list_id
+             FROM event_guests guest
+             LEFT JOIN event_guest_lists guest_list ON guest_list.id = guest.guest_list_id
+             WHERE 1 = 0'
+        );
+        $pending = $pdo->query(
+            "SELECT
+                EXISTS(
+                    SELECT 1
+                    FROM events event
+                    WHERE event.access_mode = 'personal'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM event_guest_lists guest_list
+                          WHERE guest_list.event_id = event.id
+                      )
+                    LIMIT 1
+                )
+                OR EXISTS(
+                    SELECT 1 FROM event_guests guest
+                    WHERE guest.guest_list_id IS NULL
+                    LIMIT 1
+                )"
+        )->fetchColumn();
+        return (int) $pending === 0;
+    } catch (PDOException $error) {
+        $nativeCode = isset($error->errorInfo[1])
+            ? (int) $error->errorInfo[1]
+            : (is_numeric($error->getCode()) ? (int) $error->getCode() : 0);
+        if (in_array($nativeCode, [1054, 1146], true)) {
+            return false;
+        }
+        throw $error;
+    }
+}
+
+function event_guest_lists_ensure_schema(PDO $pdo): void
+{
+    static $ready = false;
+    if ($ready || event_guest_lists_schema_ready($pdo)) {
+        $ready = true;
+        return;
+    }
+
+    $lockAcquired = false;
+    try {
+        $lock = $pdo->prepare('SELECT GET_LOCK(?, 10)');
+        $lock->execute(['nox_event_guest_lists_schema_v1']);
+        $lockAcquired = (int) $lock->fetchColumn() === 1;
+        if (!$lockAcquired) {
+            throw new RuntimeException('No fue posible reservar la actualización de eventos.');
+        }
+        if (event_guest_lists_schema_ready($pdo)) {
+            $ready = true;
+            return;
+        }
+
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS event_guest_lists (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                event_id BIGINT UNSIGNED NOT NULL,
+                name VARCHAR(160) NOT NULL,
+                created_by BIGINT UNSIGNED NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY event_guest_lists_event_name_uq (event_id, name),
+                KEY event_guest_lists_event_idx (event_id, created_at),
+                CONSTRAINT event_guest_lists_event_fk
+                    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+                CONSTRAINT event_guest_lists_creator_fk
+                    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+            ) ENGINE=InnoDB"
+        );
+
+        $column = $pdo->query(
+            "SELECT COUNT(*)
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = 'event_guests'
+               AND column_name = 'guest_list_id'"
+        );
+        if ((int) $column->fetchColumn() === 0) {
+            $pdo->exec(
+                'ALTER TABLE event_guests
+                 ADD COLUMN guest_list_id BIGINT UNSIGNED NULL AFTER event_id'
+            );
+        }
+
+        $index = $pdo->query(
+            "SELECT COUNT(*)
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'event_guests'
+               AND index_name = 'event_guests_list_idx'"
+        );
+        if ((int) $index->fetchColumn() === 0) {
+            $pdo->exec(
+                'ALTER TABLE event_guests
+                 ADD KEY event_guests_list_idx (guest_list_id, created_at)'
+            );
+        }
+
+        $foreignKey = $pdo->query(
+            "SELECT COUNT(*)
+             FROM information_schema.key_column_usage
+             WHERE table_schema = DATABASE()
+               AND table_name = 'event_guests'
+               AND (
+                    constraint_name = 'event_guests_list_fk'
+                    OR (
+                        column_name = 'guest_list_id'
+                        AND referenced_table_name = 'event_guest_lists'
+                        AND referenced_column_name = 'id'
+                    )
+               )"
+        );
+        if ((int) $foreignKey->fetchColumn() === 0) {
+            $pdo->exec(
+                'ALTER TABLE event_guests
+                 ADD CONSTRAINT event_guests_list_fk
+                 FOREIGN KEY (guest_list_id) REFERENCES event_guest_lists(id) ON DELETE SET NULL'
+            );
+        }
+
+        $pdo->exec(
+            "INSERT INTO event_guest_lists (event_id, name, created_by)
+             SELECT event.id, 'Lista general', event.created_by
+             FROM events event
+             WHERE event.access_mode = 'personal'
+               AND NOT EXISTS (
+                   SELECT 1 FROM event_guest_lists guest_list
+                   WHERE guest_list.event_id = event.id
+               )"
+        );
+        $pdo->exec(
+            'UPDATE event_guests guest
+             SET guest_list_id = (
+                 SELECT MIN(guest_list.id)
+                 FROM event_guest_lists guest_list
+                 WHERE guest_list.event_id = guest.event_id
+             )
+             WHERE guest.guest_list_id IS NULL'
+        );
+        if (!event_guest_lists_schema_ready($pdo)) {
+            throw new RuntimeException('La actualización de listas quedó incompleta.');
+        }
+        $ready = true;
+    } catch (Throwable $error) {
+        error_log('NOX guest lists schema update failed: ' . $error->__toString());
+        throw new ApiError(
+            'La base de datos de Eventos necesita actualizarse. Ejecute admin/db/migrate_guest_lists.sql en phpMyAdmin y vuelva a intentar.',
+            503
+        );
+    } finally {
+        if ($lockAcquired) {
+            try {
+                $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+                $release->execute(['nox_event_guest_lists_schema_v1']);
+            } catch (Throwable $releaseError) {
+                error_log('NOX guest lists schema lock release failed: ' . $releaseError->getMessage());
+            }
+        }
+    }
+}
+
 function event_guest_list_id(PDO $pdo, int $eventId, $rawListId, int $userId): int
 {
     if ($rawListId !== null && $rawListId !== '') {
@@ -102,6 +271,7 @@ function event_row(PDO $pdo, int $eventId, bool $lock = false): ?array
 function events_list(array $params = [])
 {
     require_auth();
+    event_guest_lists_ensure_schema(db());
     $rows = db()->query(
         "SELECT e.id, e.name, e.access_mode AS accessMode, e.starts_at AS startsAt, e.ends_at AS endsAt,
                 e.capacity, e.status, e.notes, e.created_at AS createdAt, u.full_name AS createdBy,
@@ -118,6 +288,7 @@ function events_list(array $params = [])
 function events_detail(array $params)
 {
     $user = require_auth();
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $pdo = db();
     $event = event_row($pdo, $eventId);
@@ -178,6 +349,7 @@ function events_create(array $params = [])
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $body = request_body();
     $name = value_string($body, 'name', 2, 160);
     $accessMode = require_choice($body['accessMode'] ?? '', ['shared', 'personal'], 'accessMode');
@@ -218,6 +390,7 @@ function events_update(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $body = request_body();
     if (!$body) {
@@ -318,6 +491,7 @@ function event_guest_lists_create(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $name = value_string(request_body(), 'name', 2, 160);
 
@@ -358,6 +532,7 @@ function event_guest_lists_update(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $listId = path_id($params);
     $name = value_string(request_body(), 'name', 2, 160);
 
@@ -396,6 +571,7 @@ function events_delete(array $params)
 {
     require_csrf();
     $user = require_roles(['admin']);
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $confirmation = value_string(request_body(), 'confirmation', 2, 160);
 
@@ -591,6 +767,7 @@ function event_guests_create(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $body = request_body();
     $guest = event_guest_values($body);
@@ -632,6 +809,7 @@ function event_guests_import(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $body = request_body();
     $rows = $body['guests'] ?? null;
@@ -695,6 +873,7 @@ function event_guests_update(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $guestId = path_id($params);
     $body = request_body();
     $values = event_guest_values($body);
@@ -751,6 +930,7 @@ function event_guests_delete(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $eventId = path_id($params);
     $body = request_body();
     $all = filter_var($body['all'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -793,6 +973,7 @@ function event_guest_lists_delete(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
+    event_guest_lists_ensure_schema(db());
     $listId = path_id($params);
     $confirmation = value_string(request_body(), 'confirmation', 2, 160);
 

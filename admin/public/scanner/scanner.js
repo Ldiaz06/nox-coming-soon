@@ -210,6 +210,10 @@ async function initializeDoor() {
   if (document.documentElement.requestFullscreen) $("#fullscreen-button").hidden = false;
   try {
     const { user, csrf } = await doorApi("/api/auth/me");
+    if (!user) {
+      window.location.replace("/");
+      return;
+    }
     doorState.user = user;
     doorState.csrf = csrf;
     $("#operator-name").textContent = user.fullName;

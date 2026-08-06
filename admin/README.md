@@ -105,6 +105,12 @@ La migración conserva todos los tokens y QR existentes, crea una **Lista
 general** por cada evento personal y asigna allí sus invitados actuales. Puede
 ejecutarse más de una vez sin duplicar listas ni columnas.
 
+Al abrir Eventos, el panel también detecta automáticamente una instalación
+anterior e intenta aplicar esta actualización una sola vez. Si el usuario
+MySQL del hosting no tiene permiso para crear o modificar tablas, la API
+responde con una instrucción explícita para importar
+`admin/db/migrate_guest_lists.sql` en lugar de devolver un error 500 genérico.
+
 Para habilitar la eliminación individual, múltiple y el reinicio del
 inventario en una base de datos existente, importe una sola vez (o repítalo sin
 riesgo) el archivo idempotente:

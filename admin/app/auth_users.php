@@ -74,7 +74,10 @@ function auth_logout(array $params = [])
 
 function auth_me(array $params = [])
 {
-    $user = require_auth();
+    $user = current_user();
+    if (!$user) {
+        json_response(['user' => null, 'csrf' => null]);
+    }
     json_response(['user' => auth_user_payload($user), 'csrf' => csrf_token()]);
 }
 
