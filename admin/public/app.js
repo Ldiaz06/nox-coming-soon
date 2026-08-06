@@ -102,28 +102,41 @@ function toast(message, error = false) {
 }
 
 async function api(path, options = {}) {
-  const method = String(options.method || "GET").toUpperCase();
-  const headers = { ...(options.headers || {}) };
-  if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  const { timeout = 30000, ...requestOptions } = options;
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const headers = { ...(requestOptions.headers || {}) };
+  if (requestOptions.body && !(requestOptions.body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.csrf) headers["X-CSRF-Token"] = state.csrf;
   const requested = new URL(path, window.location.origin);
   const endpoint = new URL("index.php", document.baseURI);
   endpoint.searchParams.set("api_path", requested.pathname.replace(/^\/api\/?/, ""));
   requested.searchParams.forEach((value, key) => endpoint.searchParams.append(key, value));
-  const response = await fetch(endpoint, {
-    credentials: "same-origin",
-    ...options,
-    headers
-  });
-  if (response.status === 401 && !requested.pathname.endsWith('/auth/login')) {
-    showLogin();
-    throw new Error("La sesión expiró.");
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(endpoint, {
+      credentials: "same-origin",
+      ...requestOptions,
+      headers,
+      signal: controller.signal
+    });
+    if (response.status === 401 && !requested.pathname.endsWith('/auth/login')) {
+      showLogin();
+      throw new Error("La sesión expiró.");
+    }
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "No fue posible completar la operación.");
+    }
+    return response.status === 204 ? null : response.json();
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("El servidor no respondió a tiempo. Intente nuevamente o contacte al administrador.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || "No fue posible completar la operación.");
-  }
-  return response.status === 204 ? null : response.json();
 }
 
 function sortedUnique(values) {
@@ -1639,13 +1652,27 @@ function formValues(form) {
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const button = $("button[type=submit]", form);
   const values = formValues(form);
   $("#login-error").textContent = "";
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "Ingresando…";
   try {
-    const { user, csrf } = await api("/api/auth/login", { method: "POST", body: JSON.stringify(values) });
+    const { user, csrf } = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(values),
+      timeout: 15000
+    });
     form.reset();
     showApp(user, csrf);
-  } catch (error) { $("#login-error").textContent = error.message; }
+  } catch (error) {
+    $("#login-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.textContent = "Ingresar";
+  }
 });
 
 $("#logout-button").addEventListener("click", async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => null); showLogin(); });
