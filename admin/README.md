@@ -46,6 +46,12 @@ modifica la portada pública:
   `SofÃ­a`, conservando correctamente tildes y letras como `ñ`;
 - cada evento personal puede dividir sus invitados en varias listas por
   promotor, cortesía, mesa o grupo;
+- cada lista puede generar un código privado para `/promotores/`; desde ese
+  portal público el promotor agrega una persona o pega hasta 100 nombres y
+  recibe enlaces individuales listos para compartir;
+- los códigos de promotor se guardan como hash, pueden regenerarse o revocarse
+  desde administración y no permiten consultar los datos históricos de la
+  lista;
 - la tabla admite seleccionar uno, varios o todos los invitados visibles para
   editarlos o eliminarlos, y también permite vaciar o eliminar una lista
   completa junto con sus QR y lecturas;
@@ -110,6 +116,17 @@ anterior e intenta aplicar esta actualización una sola vez. Si el usuario
 MySQL del hosting no tiene permiso para crear o modificar tablas, la API
 responde con una instrucción explícita para importar
 `admin/db/migrate_guest_lists.sql` en lugar de devolver un error 500 genérico.
+
+Para agregar el portal público de promotores a una instalación que ya tiene
+listas, importe:
+
+```text
+/home/noxpana/public_html/admin/db/migrate_promoter_portal.sql
+```
+
+El panel también intenta agregar estas columnas automáticamente al abrir
+Eventos. La migración independiente queda disponible para hostings cuyo usuario
+MySQL no tenga permisos de `ALTER TABLE`.
 
 Para habilitar la eliminación individual, múltiple y el reinicio del
 inventario en una base de datos existente, importe una sola vez (o repítalo sin

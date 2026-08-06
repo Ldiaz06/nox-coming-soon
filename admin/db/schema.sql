@@ -372,11 +372,16 @@ CREATE TABLE IF NOT EXISTS event_guest_lists (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   event_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(160) NOT NULL,
+  promoter_code_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  promoter_code_hint VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  promoter_code_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  promoter_code_created_at DATETIME NULL,
   created_by BIGINT UNSIGNED NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY event_guest_lists_event_name_uq (event_id, name),
+  UNIQUE KEY event_guest_lists_promoter_code_uq (promoter_code_hash),
   KEY event_guest_lists_event_idx (event_id, created_at),
   CONSTRAINT event_guest_lists_event_fk FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
   CONSTRAINT event_guest_lists_creator_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
@@ -495,6 +500,61 @@ BEGIN
     ALTER TABLE event_guests
       ADD CONSTRAINT event_guests_list_fk
       FOREIGN KEY (guest_list_id) REFERENCES event_guest_lists(id) ON DELETE SET NULL;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'event_guest_lists'
+    AND column_name = 'promoter_code_hash';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE event_guest_lists
+      ADD COLUMN promoter_code_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER name;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'event_guest_lists'
+    AND column_name = 'promoter_code_hint';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE event_guest_lists
+      ADD COLUMN promoter_code_hint VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER promoter_code_hash;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'event_guest_lists'
+    AND column_name = 'promoter_code_enabled';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE event_guest_lists
+      ADD COLUMN promoter_code_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER promoter_code_hint;
+  END IF;
+
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'event_guest_lists'
+    AND column_name = 'promoter_code_created_at';
+
+  IF column_exists = 0 THEN
+    ALTER TABLE event_guest_lists
+      ADD COLUMN promoter_code_created_at DATETIME NULL AFTER promoter_code_enabled;
+  END IF;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'event_guest_lists'
+    AND index_name = 'event_guest_lists_promoter_code_uq';
+
+  IF index_exists = 0 THEN
+    ALTER TABLE event_guest_lists
+      ADD UNIQUE KEY event_guest_lists_promoter_code_uq (promoter_code_hash);
   END IF;
 
   INSERT INTO event_guest_lists (event_id, name, created_by)

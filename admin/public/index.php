@@ -38,6 +38,14 @@ if (is_file($publicInvitationsModule)) {
         error_log('NOX public invitations module could not be loaded: ' . $error->__toString());
     }
 }
+$promoterPortalModule = dirname(__DIR__) . '/app/promoter_portal.php';
+if (is_file($promoterPortalModule)) {
+    try {
+        require_once $promoterPortalModule;
+    } catch (Throwable $error) {
+        error_log('NOX promoter portal module could not be loaded: ' . $error->__toString());
+    }
+}
 require_once dirname(__DIR__) . '/app/inventory_pos.php';
 require_once dirname(__DIR__) . '/app/operations.php';
 require_once dirname(__DIR__) . '/app/workforce_payroll.php';

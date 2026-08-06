@@ -201,6 +201,12 @@
                   <button id="rename-guest-list" class="button button--ghost" type="button">Renombrar</button>
                   <button id="delete-guest-list" class="button button--danger" type="button">Eliminar lista</button>
                 </div>
+                <div class="guest-promoter-controls">
+                  <div><strong>Acceso del promotor</strong><small id="promoter-code-status">Seleccione una lista para administrar su código.</small></div>
+                  <a class="button button--ghost" href="/promotores/" target="_blank" rel="noopener">Abrir portal</a>
+                  <button id="generate-promoter-code" class="button button--primary" type="button">Generar código</button>
+                  <button id="revoke-promoter-code" class="button button--danger" type="button" hidden>Revocar código</button>
+                </div>
                 <p class="guest-list-help">Use una lista por promotor, cortesía, mesa o grupo. Cada invitación conserva su token y QR individual.</p>
               </div>
             </article>
@@ -459,6 +465,18 @@
       <div class="form-actions"><button class="button button--primary" value="submit">Guardar cambios</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
     </form>
   </dialog>
+  <dialog id="promoter-code-dialog">
+    <form method="dialog" class="dialog-form">
+      <div><p class="eyebrow">PORTAL DE PROMOTORES</p><h2>Código listo para compartir</h2><p class="muted">Este código solamente se muestra ahora. Si se pierde, genere uno nuevo y el anterior dejará de funcionar.</p></div>
+      <label>Código del promotor<input id="promoter-code-value" type="text" readonly></label>
+      <label>Enlace directo<input id="promoter-code-url" type="text" readonly></label>
+      <div class="form-actions">
+        <button id="copy-promoter-code" class="button button--primary" type="button">Copiar código</button>
+        <button id="copy-promoter-url" class="button button--ghost" type="button">Copiar enlace</button>
+        <button class="button button--ghost" value="cancel">Cerrar</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="edit-event-dialog">
     <form method="dialog" id="edit-event-form" class="dialog-form dialog-form--wide">
       <div><p class="eyebrow">EVENTOS</p><h2>Editar evento</h2><p class="muted">Los cambios de horario y capacidad se aplican inmediatamente al control de acceso.</p></div>
@@ -504,6 +522,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260806-26" defer></script>
+  <script src="/app.js?v=20260806-27" defer></script>
 </body>
 </html>

@@ -40,7 +40,9 @@ function event_guest_lists_schema_ready(PDO $pdo): bool
 {
     try {
         $pdo->query(
-            'SELECT guest.guest_list_id
+            'SELECT guest.guest_list_id, guest_list.promoter_code_hash,
+                    guest_list.promoter_code_hint, guest_list.promoter_code_enabled,
+                    guest_list.promoter_code_created_at
              FROM event_guests guest
              LEFT JOIN event_guest_lists guest_list ON guest_list.id = guest.guest_list_id
              WHERE 1 = 0'
@@ -101,11 +103,16 @@ function event_guest_lists_ensure_schema(PDO $pdo): void
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
                 event_id BIGINT UNSIGNED NOT NULL,
                 name VARCHAR(160) NOT NULL,
+                promoter_code_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+                promoter_code_hint VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NULL,
+                promoter_code_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                promoter_code_created_at DATETIME NULL,
                 created_by BIGINT UNSIGNED NOT NULL,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY event_guest_lists_event_name_uq (event_id, name),
+                UNIQUE KEY event_guest_lists_promoter_code_uq (promoter_code_hash),
                 KEY event_guest_lists_event_idx (event_id, created_at),
                 CONSTRAINT event_guest_lists_event_fk
                     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
@@ -125,6 +132,40 @@ function event_guest_lists_ensure_schema(PDO $pdo): void
             $pdo->exec(
                 'ALTER TABLE event_guests
                  ADD COLUMN guest_list_id BIGINT UNSIGNED NULL AFTER event_id'
+            );
+        }
+
+        $promoterColumns = [
+            'promoter_code_hash' => "CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER name",
+            'promoter_code_hint' => "VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER promoter_code_hash",
+            'promoter_code_enabled' => "TINYINT(1) NOT NULL DEFAULT 0 AFTER promoter_code_hint",
+            'promoter_code_created_at' => "DATETIME NULL AFTER promoter_code_enabled",
+        ];
+        $columnCheck = $pdo->prepare(
+            "SELECT COUNT(*)
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = 'event_guest_lists'
+               AND column_name = ?"
+        );
+        foreach ($promoterColumns as $columnName => $definition) {
+            $columnCheck->execute([$columnName]);
+            if ((int) $columnCheck->fetchColumn() === 0) {
+                $pdo->exec("ALTER TABLE event_guest_lists ADD COLUMN {$columnName} {$definition}");
+            }
+        }
+
+        $promoterIndex = $pdo->query(
+            "SELECT COUNT(*)
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'event_guest_lists'
+               AND index_name = 'event_guest_lists_promoter_code_uq'"
+        );
+        if ((int) $promoterIndex->fetchColumn() === 0) {
+            $pdo->exec(
+                'ALTER TABLE event_guest_lists
+                 ADD UNIQUE KEY event_guest_lists_promoter_code_uq (promoter_code_hash)'
             );
         }
 
@@ -190,7 +231,7 @@ function event_guest_lists_ensure_schema(PDO $pdo): void
     } catch (Throwable $error) {
         error_log('NOX guest lists schema update failed: ' . $error->__toString());
         throw new ApiError(
-            'La base de datos de Eventos necesita actualizarse. Ejecute admin/db/migrate_guest_lists.sql en phpMyAdmin y vuelva a intentar.',
+            'La base de datos de Eventos necesita actualizarse. Ejecute admin/db/migrate_guest_lists.sql y admin/db/migrate_promoter_portal.sql en phpMyAdmin, y vuelva a intentar.',
             503
         );
     } finally {
@@ -309,12 +350,17 @@ function events_detail(array $params)
     $guestStatement->execute([$eventId]);
     $listStatement = $pdo->prepare(
         "SELECT guest_list.id, guest_list.name, guest_list.created_at AS createdAt,
+                guest_list.promoter_code_enabled AS promoterCodeEnabled,
+                guest_list.promoter_code_hint AS promoterCodeHint,
+                guest_list.promoter_code_created_at AS promoterCodeCreatedAt,
                 COUNT(guest.id) AS guestCount,
                 SUM(guest.status = 'admitted') AS admittedCount
          FROM event_guest_lists guest_list
          LEFT JOIN event_guests guest ON guest.guest_list_id = guest_list.id
          WHERE guest_list.event_id = ?
-         GROUP BY guest_list.id, guest_list.name, guest_list.created_at
+         GROUP BY guest_list.id, guest_list.name, guest_list.created_at,
+                  guest_list.promoter_code_enabled, guest_list.promoter_code_hint,
+                  guest_list.promoter_code_created_at
          ORDER BY guest_list.created_at, guest_list.id"
     );
     $listStatement->execute([$eventId]);

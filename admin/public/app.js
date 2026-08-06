@@ -479,6 +479,15 @@ function renderGuestLists() {
   $("#guest-list-summary").textContent = `${state.guestLists.length} ${state.guestLists.length === 1 ? "lista" : "listas"}`;
   $("#rename-guest-list").disabled = !active;
   $("#delete-guest-list").disabled = !active;
+  const promoterEnabled = active && Number(active.promoterCodeEnabled) === 1;
+  $("#promoter-code-status").textContent = !active
+    ? "Seleccione una lista para administrar su código."
+    : promoterEnabled
+      ? `Código activo · termina en ${active.promoterCodeHint || "••••••"}`
+      : "Esta lista todavía no tiene un código público activo.";
+  $("#generate-promoter-code").disabled = !active;
+  $("#generate-promoter-code").textContent = promoterEnabled ? "Regenerar código" : "Generar código";
+  $("#revoke-promoter-code").hidden = !promoterEnabled;
 
   const preferredListId = active?.id || state.guestLists[0]?.id || "";
   $("#guest-import-list").innerHTML = guestListOptions(preferredListId);
@@ -2636,6 +2645,51 @@ $("#delete-guest-list").addEventListener("click", async () => {
   } catch (error) {
     toast(error.message, true);
   }
+});
+
+$("#generate-promoter-code").addEventListener("click", async () => {
+  const list = activeGuestList();
+  if (!list || !state.selectedEvent) return;
+  if (Number(list.promoterCodeEnabled) === 1
+    && !window.confirm("El código actual dejará de funcionar. ¿Desea generar uno nuevo?")) return;
+  try {
+    const result = await api(`/api/event-guest-lists/${list.id}/promoter-code`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    $("#promoter-code-value").value = result.code;
+    $("#promoter-code-url").value = result.directUrl;
+    await openEvent(state.selectedEvent.id);
+    $("#promoter-code-dialog").showModal();
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#revoke-promoter-code").addEventListener("click", async () => {
+  const list = activeGuestList();
+  if (!list || !state.selectedEvent) return;
+  if (!window.confirm(`El promotor ya no podrá agregar personas a “${list.name}”. ¿Desea revocar el código?`)) return;
+  try {
+    await api(`/api/event-guest-lists/${list.id}/promoter-code`, {
+      method: "DELETE",
+      body: JSON.stringify({})
+    });
+    await openEvent(state.selectedEvent.id);
+    toast("Código de promotor revocado.");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#copy-promoter-code").addEventListener("click", async () => {
+  await copyText($("#promoter-code-value").value);
+  toast("Código de promotor copiado.");
+});
+
+$("#copy-promoter-url").addEventListener("click", async () => {
+  await copyText($("#promoter-code-url").value);
+  toast("Enlace directo copiado.");
 });
 
 $("#guest-import-file").addEventListener("change", async (event) => {

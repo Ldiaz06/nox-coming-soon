@@ -24,6 +24,13 @@ if (function_exists('events_list')) {
     add_route('POST', 'access/scan', 'access_scan');
 }
 
+if (function_exists('public_promoter_lookup')) {
+    add_route('POST', 'event-guest-lists/{id}/promoter-code', 'event_guest_list_promoter_code_create');
+    add_route('DELETE', 'event-guest-lists/{id}/promoter-code', 'event_guest_list_promoter_code_delete');
+    add_route('POST', 'public/promoters/lookup', 'public_promoter_lookup');
+    add_route('POST', 'public/promoters/guests', 'public_promoter_guests_create');
+}
+
 if (function_exists('public_invitation_lookup')) {
     add_route('POST', 'public/invitations/lookup', 'public_invitation_lookup');
     add_route('POST', 'public/invitations/apple-wallet', 'public_invitation_apple_wallet');
