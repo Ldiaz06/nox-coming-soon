@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOX Control — Administración</title>
-  <link rel="stylesheet" href="/styles.css?v=20260803-11">
+  <link rel="stylesheet" href="/styles.css?v=20260805-13">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -185,9 +185,27 @@
           </article>
 
           <div id="personal-event-area" class="personal-event-area">
+            <article class="panel guest-lists-panel" data-event-manage>
+              <div class="panel-heading">
+                <div><p class="eyebrow">ORGANIZACIÓN</p><h3>Listas del evento</h3></div>
+                <span id="guest-list-summary" class="panel-note"></span>
+              </div>
+              <div class="guest-lists-body">
+                <form id="new-guest-list-form" class="guest-list-create">
+                  <label>Nombre de la nueva lista<input name="name" minlength="2" maxlength="160" placeholder="Ej. Promotor Carlos" required></label>
+                  <button class="button button--primary" type="submit">Crear lista</button>
+                </form>
+                <div class="guest-list-controls">
+                  <label>Lista visible<select id="guest-list-filter" aria-label="Filtrar invitados por lista"></select></label>
+                  <button id="rename-guest-list" class="button button--ghost" type="button">Renombrar</button>
+                  <button id="delete-guest-list" class="button button--danger" type="button">Eliminar lista</button>
+                </div>
+                <p class="guest-list-help">Use una lista por promotor, cortesía, mesa o grupo. Cada invitación conserva su token y QR individual.</p>
+              </div>
+            </article>
             <article class="panel guest-import-panel" data-event-manage>
               <div class="panel-heading">
-                <div><p class="eyebrow">CARGA MASIVA</p><h3>Importar invitados desde Excel</h3></div>
+                <div><p class="eyebrow">CARGA MASIVA</p><h3>Importar o pegar invitados</h3></div>
                 <a class="button button--ghost" href="/assets/plantilla-invitados-nox.xlsx" download>Descargar plantilla</a>
               </div>
               <div class="guest-import-body">
@@ -196,16 +214,25 @@
                   <div><strong>Contacto</strong><small>Opcional · teléfono o correo</small></div>
                   <div><strong>Notas</strong><small>Opcional · máximo 300 caracteres</small></div>
                 </div>
+                <label class="guest-import-destination">Importar dentro de<select id="guest-import-list" required></select></label>
                 <label class="guest-import-file">
                   <span aria-hidden="true">⇧</span>
                   <strong>Seleccionar archivo de Excel</strong>
                   <small id="guest-import-file-name">Formatos admitidos: .xlsx, .xls y .csv · máximo 500 invitados</small>
                   <input id="guest-import-file" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv">
                 </label>
+                <div class="guest-paste">
+                  <div class="guest-paste-heading">
+                    <div><strong>O pegar una lista directamente</strong><small>Acepta numeración, viñetas, teléfonos, correos y notas en distintos formatos.</small></div>
+                    <button id="parse-pasted-guests" type="button" class="button button--ghost">Preparar lista pegada</button>
+                  </div>
+                  <textarea id="guest-paste-text" rows="7" maxlength="100000" placeholder="1. Yariela Adames&#10;2. Eric&#10;3. Eric Dayan Gomes&#10;&#10;También puede pegar:&#10;Yariela Adames 6578-8867 nota"></textarea>
+                  <small>Se creará un invitado por línea. Antes de importar podrás revisar cómo se interpretó cada dato.</small>
+                </div>
                 <div id="guest-import-preview" class="guest-import-preview" hidden>
                   <div class="guest-import-summary">
                     <strong id="guest-import-summary"></strong>
-                    <button id="clear-guest-import" type="button" class="text-button">Elegir otro archivo</button>
+                    <button id="clear-guest-import" type="button" class="text-button">Limpiar carga</button>
                   </div>
                   <div class="table-scroll">
                     <table>
@@ -225,11 +252,21 @@
               <label>Nombre completo<input name="fullName" maxlength="160" minlength="2" required></label>
               <label>Teléfono o correo<input name="contact" maxlength="160"></label>
               <label>Nota<input name="notes" maxlength="300" placeholder="Mesa, promotor o cortesía"></label>
+              <label>Lista<select id="new-guest-list" name="listId" required></select></label>
               <div class="form-actions"><button class="button button--primary" type="submit">Crear invitación</button></div>
             </form>
             <article class="panel table-panel">
-              <div class="panel-heading"><div><p class="eyebrow">LISTA</p><h3>Invitados</h3></div><span id="guest-count" class="panel-note"></span></div>
-              <div class="table-scroll"><table><thead><tr><th>Invitado</th><th>Contacto</th><th>Estado</th><th>Entrada</th><th></th></tr></thead><tbody id="event-guests-table"></tbody></table></div>
+              <div class="panel-heading">
+                <div><p class="eyebrow">INVITADOS</p><h3 id="guest-table-title">Todas las listas</h3></div>
+                <div class="heading-actions"><span id="guest-count" class="panel-note"></span><button id="download-guest-list" class="button button--ghost" type="button" data-event-manage>Descargar Excel</button></div>
+              </div>
+              <div id="guest-selection-toolbar" class="guest-selection-toolbar">
+                <span id="guest-selection-count">0 seleccionados</span>
+                <button id="edit-selected-guest" class="button button--ghost" type="button" disabled>Editar seleccionado</button>
+                <button id="delete-selected-guests" class="button button--danger" type="button" disabled>Eliminar seleccionados</button>
+                <button id="clear-guest-list" class="button button--danger" type="button">Eliminar lista visible completa</button>
+              </div>
+              <div class="table-scroll"><table><thead><tr><th class="select-column"><input id="select-all-event-guests" class="row-select" type="checkbox" aria-label="Seleccionar todos los invitados visibles"></th><th>Invitado</th><th>Lista</th><th>Contacto</th><th>Estado</th><th>Entrada</th><th></th></tr></thead><tbody id="event-guests-table"></tbody></table></div>
             </article>
           </div>
 
@@ -410,6 +447,17 @@
       </div>
     </form>
   </dialog>
+  <dialog id="edit-guest-dialog">
+    <form method="dialog" id="edit-guest-form" class="dialog-form">
+      <div><p class="eyebrow">INVITACIÓN PERSONAL</p><h2>Editar invitado</h2><p class="muted">El token y el QR actual no cambian al editar esta información.</p></div>
+      <input name="id" type="hidden">
+      <label>Nombre completo<input name="fullName" minlength="2" maxlength="160" required></label>
+      <label>Teléfono o correo<input name="contact" maxlength="160"></label>
+      <label>Nota<input name="notes" maxlength="300"></label>
+      <label>Lista<select name="listId" required></select></label>
+      <div class="form-actions"><button class="button button--primary" value="submit">Guardar cambios</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
+    </form>
+  </dialog>
   <dialog id="edit-event-dialog">
     <form method="dialog" id="edit-event-form" class="dialog-form dialog-form--wide">
       <div><p class="eyebrow">EVENTOS</p><h2>Editar evento</h2><p class="muted">Los cambios de horario y capacidad se aplican inmediatamente al control de acceso.</p></div>
@@ -455,6 +503,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260805-23" defer></script>
+  <script src="/app.js?v=20260805-25" defer></script>
 </body>
 </html>

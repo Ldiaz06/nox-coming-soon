@@ -36,6 +36,39 @@ function event_optional_capacity(array $body): ?int
     return (int) $capacity;
 }
 
+function event_guest_list_id(PDO $pdo, int $eventId, $rawListId, int $userId): int
+{
+    if ($rawListId !== null && $rawListId !== '') {
+        $listId = filter_var($rawListId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($listId === false) {
+            throw new ApiError('Seleccione una lista válida.');
+        }
+        $statement = $pdo->prepare(
+            'SELECT id FROM event_guest_lists WHERE id = ? AND event_id = ? LIMIT 1'
+        );
+        $statement->execute([(int) $listId, $eventId]);
+        if ($statement->fetchColumn() !== false) {
+            return (int) $listId;
+        }
+        throw new ApiError('La lista seleccionada no pertenece a este evento.', 409);
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT id FROM event_guest_lists WHERE event_id = ? ORDER BY id LIMIT 1'
+    );
+    $statement->execute([$eventId]);
+    $existing = $statement->fetchColumn();
+    if ($existing !== false) {
+        return (int) $existing;
+    }
+
+    $insert = $pdo->prepare(
+        'INSERT INTO event_guest_lists (event_id, name, created_by) VALUES (?, ?, ?)'
+    );
+    $insert->execute([$eventId, 'Lista general', $userId]);
+    return (int) $pdo->lastInsertId();
+}
+
 function event_row(PDO $pdo, int $eventId, bool $lock = false): ?array
 {
     if ($lock) {
@@ -94,13 +127,26 @@ function events_detail(array $params)
     $guestStatement = $pdo->prepare(
         "SELECT g.id, g.full_name AS fullName, g.contact, g.notes, g.qr_token AS qrToken,
                 g.status, g.admitted_at AS admittedAt, admitted.full_name AS admittedBy,
-                g.created_at AS createdAt
+                g.created_at AS createdAt, g.guest_list_id AS listId,
+                COALESCE(guest_list.name, 'Sin lista') AS listName
          FROM event_guests g
          LEFT JOIN users admitted ON admitted.id = g.admitted_by
+         LEFT JOIN event_guest_lists guest_list ON guest_list.id = g.guest_list_id
          WHERE g.event_id = ?
          ORDER BY g.created_at DESC, g.id DESC"
     );
     $guestStatement->execute([$eventId]);
+    $listStatement = $pdo->prepare(
+        "SELECT guest_list.id, guest_list.name, guest_list.created_at AS createdAt,
+                COUNT(guest.id) AS guestCount,
+                SUM(guest.status = 'admitted') AS admittedCount
+         FROM event_guest_lists guest_list
+         LEFT JOIN event_guests guest ON guest.guest_list_id = guest_list.id
+         WHERE guest_list.event_id = ?
+         GROUP BY guest_list.id, guest_list.name, guest_list.created_at
+         ORDER BY guest_list.created_at, guest_list.id"
+    );
+    $listStatement->execute([$eventId]);
     $accessStatement = $pdo->prepare(
         "SELECT a.id, a.token_type AS tokenType, a.decision, a.reason, a.scanned_at AS scannedAt,
                 scanner.full_name AS scannedBy, guest.full_name AS guestName
@@ -122,6 +168,7 @@ function events_detail(array $params)
     }
     json_response([
         'event' => $event,
+        'guestLists' => $listStatement->fetchAll(),
         'guests' => $guests,
         'accesses' => $accessStatement->fetchAll(),
     ]);
@@ -150,6 +197,11 @@ function events_create(array $params = [])
         );
         $statement->execute([$name, $accessMode, $startsAt, $endsAt, $capacity, $notes, $sharedToken, $user['id']]);
         $id = (int) $pdo->lastInsertId();
+        if ($accessMode === 'personal') {
+            $pdo->prepare(
+                'INSERT INTO event_guest_lists (event_id, name, created_by) VALUES (?, ?, ?)'
+            )->execute([$id, 'Lista general', $user['id']]);
+        }
         audit_log($pdo, $user, 'create', 'event', $id, null, [
             'name' => $name,
             'accessMode' => $accessMode,
@@ -217,6 +269,13 @@ function events_update(array $params)
              SET name = ?, access_mode = ?, starts_at = ?, ends_at = ?, capacity = ?, notes = ?, shared_qr_token = ?
              WHERE id = ?'
         )->execute([$name, $accessMode, $startsAt, $endsAt, $capacity, $notes, $sharedToken, $eventId]);
+        if ($accessMode !== $event['accessMode']) {
+            if ($accessMode === 'personal') {
+                event_guest_list_id($pdo, $eventId, null, (int) $user['id']);
+            } else {
+                $pdo->prepare('DELETE FROM event_guest_lists WHERE event_id = ?')->execute([$eventId]);
+            }
+        }
         $after = [
             'name' => $name,
             'accessMode' => $accessMode,
@@ -255,6 +314,84 @@ function events_status_update(array $params)
     json_response(['id' => $eventId, 'status' => $status]);
 }
 
+function event_guest_lists_create(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $eventId = path_id($params);
+    $name = value_string(request_body(), 'name', 2, 160);
+
+    try {
+        $listId = transaction(function (PDO $pdo) use ($user, $eventId, $name): int {
+            $event = event_row($pdo, $eventId, true);
+            if (!$event) {
+                throw new ApiError('Evento no encontrado.', 404);
+            }
+            if ($event['accessMode'] !== 'personal') {
+                throw new ApiError('Solo los eventos con QR personal pueden tener listas.', 409);
+            }
+            if ($event['status'] === 'cancelled') {
+                throw new ApiError('No se pueden crear listas en un evento cancelado.', 409);
+            }
+            $statement = $pdo->prepare(
+                'INSERT INTO event_guest_lists (event_id, name, created_by) VALUES (?, ?, ?)'
+            );
+            $statement->execute([$eventId, $name, $user['id']]);
+            $id = (int) $pdo->lastInsertId();
+            audit_log($pdo, $user, 'create', 'event_guest_list', $id, null, [
+                'eventId' => $eventId,
+                'name' => $name,
+            ]);
+            return $id;
+        });
+    } catch (PDOException $error) {
+        if ((string) $error->getCode() === '23000') {
+            throw new ApiError('Ya existe una lista con ese nombre en el evento.', 409);
+        }
+        throw $error;
+    }
+
+    json_response(['id' => $listId, 'name' => $name], 201);
+}
+
+function event_guest_lists_update(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $listId = path_id($params);
+    $name = value_string(request_body(), 'name', 2, 160);
+
+    try {
+        $eventId = transaction(function (PDO $pdo) use ($user, $listId, $name): int {
+            $statement = $pdo->prepare(
+                'SELECT id, event_id AS eventId, name FROM event_guest_lists WHERE id = ? FOR UPDATE'
+            );
+            $statement->execute([$listId]);
+            $list = $statement->fetch();
+            if (!$list) {
+                throw new ApiError('Lista no encontrada.', 404);
+            }
+            $pdo->prepare('UPDATE event_guest_lists SET name = ? WHERE id = ?')
+                ->execute([$name, $listId]);
+            audit_log($pdo, $user, 'update', 'event_guest_list', $listId, [
+                'eventId' => $list['eventId'],
+                'name' => $list['name'],
+            ], [
+                'eventId' => $list['eventId'],
+                'name' => $name,
+            ]);
+            return (int) $list['eventId'];
+        });
+    } catch (PDOException $error) {
+        if ((string) $error->getCode() === '23000') {
+            throw new ApiError('Ya existe una lista con ese nombre en el evento.', 409);
+        }
+        throw $error;
+    }
+
+    json_response(['id' => $listId, 'eventId' => $eventId, 'name' => $name]);
+}
+
 function events_delete(array $params)
 {
     require_csrf();
@@ -274,6 +411,9 @@ function events_delete(array $params)
         $guestStatement = $pdo->prepare('SELECT id FROM event_guests WHERE event_id = ?');
         $guestStatement->execute([$eventId]);
         $guestIds = array_map('intval', $guestStatement->fetchAll(PDO::FETCH_COLUMN));
+        $listStatement = $pdo->prepare('SELECT id FROM event_guest_lists WHERE event_id = ?');
+        $listStatement->execute([$eventId]);
+        $listIds = array_map('intval', $listStatement->fetchAll(PDO::FETCH_COLUMN));
 
         $accessWhere = 'event_id = ?';
         $accessParams = [$eventId];
@@ -295,6 +435,14 @@ function events_delete(array $params)
             );
             $guestAudit->execute($guestIds);
         }
+        if ($listIds) {
+            $listAudit = $pdo->prepare(
+                "DELETE FROM audit_log
+                 WHERE entity_type = 'event_guest_list'
+                   AND entity_id IN (" . placeholders(count($listIds)) . ')'
+            );
+            $listAudit->execute($listIds);
+        }
         $pdo->prepare(
             "DELETE FROM audit_log
              WHERE entity_type = 'event'
@@ -302,7 +450,7 @@ function events_delete(array $params)
         )->execute([$eventId]);
         $pdo->prepare(
             "DELETE FROM audit_log
-             WHERE entity_type = 'event_guest'
+             WHERE entity_type IN ('event_guest', 'event_guest_deletion', 'event_guest_list_deletion')
                AND entity_id IS NULL
                AND (
                     JSON_UNQUOTE(JSON_EXTRACT(before_data, '$.eventId')) = ?
@@ -330,13 +478,49 @@ function events_delete(array $params)
     json_response($result);
 }
 
+function event_guest_repair_text($value): string
+{
+    $text = (string) ($value ?? '');
+    if (function_exists('iconv') && preg_match('/[ÃÂâ]/u', $text)) {
+        $repaired = preg_replace_callback(
+            '/(?:Ã.|Â.|â..)+/u',
+            static function (array $match): string {
+                $candidate = @iconv('UTF-8', 'Windows-1252//IGNORE', $match[0]);
+                return is_string($candidate) && preg_match('//u', $candidate)
+                    ? $candidate
+                    : $match[0];
+            },
+            $text
+        );
+        if (is_string($repaired)) {
+            $text = $repaired;
+        }
+    }
+    $text = preg_replace('/[\x{00A0}\x{1680}\x{2000}-\x{200A}\x{202F}\x{205F}\x{3000}]/u', ' ', $text) ?? $text;
+    $text = preg_replace('/[\x{200B}\x{2060}\x{FEFF}]/u', '', $text) ?? $text;
+    $text = preg_replace('/[ \t]+/u', ' ', $text) ?? $text;
+    if (class_exists('Normalizer')) {
+        $normalized = Normalizer::normalize($text, Normalizer::FORM_C);
+        if (is_string($normalized)) {
+            $text = $normalized;
+        }
+    }
+    return trim($text);
+}
+
 function event_guest_values(array $body, ?int $rowNumber = null): array
 {
+    $cleanBody = $body;
+    foreach (['fullName', 'contact', 'notes'] as $field) {
+        if (array_key_exists($field, $cleanBody)) {
+            $cleanBody[$field] = event_guest_repair_text($cleanBody[$field]);
+        }
+    }
     try {
         return [
-            'fullName' => value_string($body, 'fullName', 2, 160),
-            'contact' => value_string($body, 'contact', 0, 160, false),
-            'notes' => value_string($body, 'notes', 0, 300, false),
+            'fullName' => value_string($cleanBody, 'fullName', 2, 160),
+            'contact' => value_string($cleanBody, 'contact', 0, 160, false),
+            'notes' => value_string($cleanBody, 'notes', 0, 300, false),
         ];
     } catch (ApiError $error) {
         if ($rowNumber === null) {
@@ -346,17 +530,76 @@ function event_guest_values(array $body, ?int $rowNumber = null): array
     }
 }
 
+function event_guests_delete_rows(PDO $pdo, array $user, int $eventId, array $ids): array
+{
+    $ids = array_values(array_unique(array_filter(
+        array_map('intval', $ids),
+        static fn (int $id): bool => $id > 0
+    )));
+    if (!$ids) {
+        return ['deleted' => 0, 'accessCount' => 0];
+    }
+
+    $in = placeholders(count($ids));
+    $statement = $pdo->prepare(
+        "SELECT id, full_name AS fullName, guest_list_id AS listId
+         FROM event_guests
+         WHERE event_id = ? AND id IN ({$in})
+         ORDER BY id FOR UPDATE"
+    );
+    $statement->execute(array_merge([$eventId], $ids));
+    $guests = $statement->fetchAll();
+    if (count($guests) !== count($ids)) {
+        throw new ApiError('Uno o más invitados ya no pertenecen a este evento.', 409);
+    }
+
+    $accessCountStatement = $pdo->prepare(
+        "SELECT COUNT(*) FROM event_access_log WHERE guest_id IN ({$in})"
+    );
+    $accessCountStatement->execute($ids);
+    $accessCount = (int) $accessCountStatement->fetchColumn();
+    $pdo->prepare("DELETE FROM event_access_log WHERE guest_id IN ({$in})")->execute($ids);
+    $pdo->prepare(
+        "DELETE FROM audit_log
+         WHERE entity_type = 'event_guest' AND entity_id IN ({$in})"
+    )->execute($ids);
+    $delete = $pdo->prepare(
+        "DELETE FROM event_guests WHERE event_id = ? AND id IN ({$in})"
+    );
+    $delete->execute(array_merge([$eventId], $ids));
+    if ($delete->rowCount() !== count($ids)) {
+        throw new ApiError('No fue posible eliminar todos los invitados seleccionados.', 409);
+    }
+
+    audit_log($pdo, $user, 'delete_bulk', 'event_guest_deletion', null, [
+        'eventId' => $eventId,
+        'guests' => array_map(static fn (array $guest): array => [
+            'id' => (int) $guest['id'],
+            'fullName' => $guest['fullName'],
+            'listId' => $guest['listId'] !== null ? (int) $guest['listId'] : null,
+        ], $guests),
+    ], [
+        'eventId' => $eventId,
+        'deleted' => count($guests),
+        'accessCount' => $accessCount,
+    ]);
+
+    return ['deleted' => count($guests), 'accessCount' => $accessCount];
+}
+
 function event_guests_create(array $params)
 {
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
     $eventId = path_id($params);
-    $guest = event_guest_values(request_body());
+    $body = request_body();
+    $guest = event_guest_values($body);
     $fullName = $guest['fullName'];
     $contact = $guest['contact'];
     $notes = $guest['notes'];
+    $requestedListId = $body['listId'] ?? null;
     $token = event_access_token('P');
-    $guestId = transaction(function (PDO $pdo) use ($user, $eventId, $fullName, $contact, $notes, $token): int {
+    $result = transaction(function (PDO $pdo) use ($user, $eventId, $fullName, $contact, $notes, $requestedListId, $token): array {
         $event = event_row($pdo, $eventId, true);
         if (!$event) {
             throw new ApiError('Evento no encontrado.', 404);
@@ -367,20 +610,22 @@ function event_guests_create(array $params)
         if ($event['status'] === 'cancelled') {
             throw new ApiError('No se pueden agregar invitados a un evento cancelado.', 409);
         }
+        $listId = event_guest_list_id($pdo, $eventId, $requestedListId, (int) $user['id']);
         $statement = $pdo->prepare(
-            "INSERT INTO event_guests (event_id, full_name, contact, notes, qr_token, status, created_by)
-             VALUES (?, ?, ?, ?, ?, 'invited', ?)"
+            "INSERT INTO event_guests (event_id, guest_list_id, full_name, contact, notes, qr_token, status, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, 'invited', ?)"
         );
-        $statement->execute([$eventId, $fullName, $contact, $notes, $token, $user['id']]);
+        $statement->execute([$eventId, $listId, $fullName, $contact, $notes, $token, $user['id']]);
         $id = (int) $pdo->lastInsertId();
         audit_log($pdo, $user, 'create', 'event_guest', $id, null, [
             'eventId' => $eventId,
             'fullName' => $fullName,
             'contact' => $contact,
+            'listId' => $listId,
         ]);
-        return $id;
+        return ['id' => $id, 'listId' => $listId];
     });
-    json_response(['id' => $guestId, 'qrToken' => $token], 201);
+    json_response(['id' => $result['id'], 'listId' => $result['listId'], 'qrToken' => $token], 201);
 }
 
 function event_guests_import(array $params)
@@ -388,7 +633,9 @@ function event_guests_import(array $params)
     require_csrf();
     $user = require_roles(['admin', 'supervisor']);
     $eventId = path_id($params);
-    $rows = request_body()['guests'] ?? null;
+    $body = request_body();
+    $rows = $body['guests'] ?? null;
+    $requestedListId = $body['listId'] ?? null;
     if (!is_array($rows) || count($rows) < 1) {
         throw new ApiError('El archivo no contiene invitados para importar.');
     }
@@ -405,7 +652,7 @@ function event_guests_import(array $params)
         $guests[] = event_guest_values($row, $index + 2);
     }
 
-    $createdCount = transaction(function (PDO $pdo) use ($user, $eventId, $guests): int {
+    $result = transaction(function (PDO $pdo) use ($user, $eventId, $guests, $requestedListId): array {
         $event = event_row($pdo, $eventId, true);
         if (!$event) {
             throw new ApiError('Evento no encontrado.', 404);
@@ -416,14 +663,16 @@ function event_guests_import(array $params)
         if ($event['status'] === 'cancelled') {
             throw new ApiError('No se pueden agregar invitados a un evento cancelado.', 409);
         }
+        $listId = event_guest_list_id($pdo, $eventId, $requestedListId, (int) $user['id']);
 
         $statement = $pdo->prepare(
-            "INSERT INTO event_guests (event_id, full_name, contact, notes, qr_token, status, created_by)
-             VALUES (?, ?, ?, ?, ?, 'invited', ?)"
+            "INSERT INTO event_guests (event_id, guest_list_id, full_name, contact, notes, qr_token, status, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, 'invited', ?)"
         );
         foreach ($guests as $guest) {
             $statement->execute([
                 $eventId,
+                $listId,
                 $guest['fullName'],
                 $guest['contact'],
                 $guest['notes'],
@@ -433,12 +682,172 @@ function event_guests_import(array $params)
         }
         audit_log($pdo, $user, 'bulk_create', 'event_guest', null, null, [
             'eventId' => $eventId,
+            'listId' => $listId,
             'guestCount' => count($guests),
         ]);
-        return count($guests);
+        return ['createdCount' => count($guests), 'listId' => $listId];
     });
 
-    json_response(['createdCount' => $createdCount], 201);
+    json_response($result, 201);
+}
+
+function event_guests_update(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $guestId = path_id($params);
+    $body = request_body();
+    $values = event_guest_values($body);
+
+    $result = transaction(function (PDO $pdo) use ($user, $guestId, $body, $values): array {
+        $statement = $pdo->prepare(
+            "SELECT id, event_id AS eventId, guest_list_id AS listId, full_name AS fullName,
+                    contact, notes, status
+             FROM event_guests WHERE id = ? FOR UPDATE"
+        );
+        $statement->execute([$guestId]);
+        $guest = $statement->fetch();
+        if (!$guest) {
+            throw new ApiError('Invitación no encontrada.', 404);
+        }
+        $listId = event_guest_list_id(
+            $pdo,
+            (int) $guest['eventId'],
+            $body['listId'] ?? $guest['listId'],
+            (int) $user['id']
+        );
+        $pdo->prepare(
+            'UPDATE event_guests
+             SET guest_list_id = ?, full_name = ?, contact = ?, notes = ?
+             WHERE id = ?'
+        )->execute([
+            $listId,
+            $values['fullName'],
+            $values['contact'],
+            $values['notes'],
+            $guestId,
+        ]);
+        $after = [
+            'eventId' => (int) $guest['eventId'],
+            'listId' => $listId,
+            'fullName' => $values['fullName'],
+            'contact' => $values['contact'],
+            'notes' => $values['notes'],
+        ];
+        audit_log($pdo, $user, 'update', 'event_guest', $guestId, [
+            'eventId' => (int) $guest['eventId'],
+            'listId' => $guest['listId'] !== null ? (int) $guest['listId'] : null,
+            'fullName' => $guest['fullName'],
+            'contact' => $guest['contact'],
+            'notes' => $guest['notes'],
+        ], $after);
+        return ['id' => $guestId] + $after;
+    });
+
+    json_response($result);
+}
+
+function event_guests_delete(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $eventId = path_id($params);
+    $body = request_body();
+    $all = filter_var($body['all'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $requestedIds = is_array($body['ids'] ?? null) ? $body['ids'] : [];
+    $requestedIds = array_values(array_unique(array_filter(
+        array_map('intval', $requestedIds),
+        static fn (int $id): bool => $id > 0
+    )));
+    if (!$all && (!$requestedIds || count($requestedIds) > 1000)) {
+        throw new ApiError('Seleccione entre 1 y 1000 invitados.');
+    }
+
+    $result = transaction(function (PDO $pdo) use ($user, $eventId, $body, $all, $requestedIds): array {
+        $event = event_row($pdo, $eventId, true);
+        if (!$event) {
+            throw new ApiError('Evento no encontrado.', 404);
+        }
+        $ids = $requestedIds;
+        if ($all) {
+            $listId = $body['listId'] ?? null;
+            if ($listId !== null && $listId !== '') {
+                $listId = event_guest_list_id($pdo, $eventId, $listId, (int) $user['id']);
+                $statement = $pdo->prepare(
+                    'SELECT id FROM event_guests WHERE event_id = ? AND guest_list_id = ?'
+                );
+                $statement->execute([$eventId, $listId]);
+            } else {
+                $statement = $pdo->prepare('SELECT id FROM event_guests WHERE event_id = ?');
+                $statement->execute([$eventId]);
+            }
+            $ids = array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+        }
+        return event_guests_delete_rows($pdo, $user, $eventId, $ids);
+    });
+
+    json_response($result);
+}
+
+function event_guest_lists_delete(array $params)
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $listId = path_id($params);
+    $confirmation = value_string(request_body(), 'confirmation', 2, 160);
+
+    $result = transaction(function (PDO $pdo) use ($user, $listId, $confirmation): array {
+        $statement = $pdo->prepare(
+            'SELECT id, event_id AS eventId, name FROM event_guest_lists WHERE id = ? FOR UPDATE'
+        );
+        $statement->execute([$listId]);
+        $list = $statement->fetch();
+        if (!$list) {
+            throw new ApiError('Lista no encontrada.', 404);
+        }
+        if (!hash_equals((string) $list['name'], $confirmation)) {
+            throw new ApiError('El nombre de confirmación no coincide con la lista.', 409);
+        }
+
+        $guestStatement = $pdo->prepare(
+            'SELECT id FROM event_guests WHERE event_id = ? AND guest_list_id = ?'
+        );
+        $guestStatement->execute([(int) $list['eventId'], $listId]);
+        $ids = array_map('intval', $guestStatement->fetchAll(PDO::FETCH_COLUMN));
+        $deleted = event_guests_delete_rows($pdo, $user, (int) $list['eventId'], $ids);
+        $pdo->prepare(
+            "DELETE FROM audit_log WHERE entity_type = 'event_guest_list' AND entity_id = ?"
+        )->execute([$listId]);
+        $pdo->prepare('DELETE FROM event_guest_lists WHERE id = ?')->execute([$listId]);
+        $remaining = $pdo->prepare('SELECT COUNT(*) FROM event_guest_lists WHERE event_id = ?');
+        $remaining->execute([(int) $list['eventId']]);
+        $replacementListId = null;
+        if ((int) $remaining->fetchColumn() === 0) {
+            $pdo->prepare(
+                'INSERT INTO event_guest_lists (event_id, name, created_by) VALUES (?, ?, ?)'
+            )->execute([(int) $list['eventId'], 'Lista general', $user['id']]);
+            $replacementListId = (int) $pdo->lastInsertId();
+        }
+        audit_log($pdo, $user, 'delete', 'event_guest_list_deletion', null, [
+            'eventId' => (int) $list['eventId'],
+            'listId' => $listId,
+            'name' => $list['name'],
+        ], [
+            'eventId' => (int) $list['eventId'],
+            'guestCount' => $deleted['deleted'],
+            'accessCount' => $deleted['accessCount'],
+            'replacementListId' => $replacementListId,
+        ]);
+        return [
+            'deleted' => true,
+            'eventId' => (int) $list['eventId'],
+            'guestCount' => $deleted['deleted'],
+            'accessCount' => $deleted['accessCount'],
+            'replacementListId' => $replacementListId,
+        ];
+    });
+
+    json_response($result);
 }
 
 function event_guests_reissue(array $params)

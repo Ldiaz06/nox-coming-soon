@@ -39,6 +39,18 @@ modifica la portada pública:
   automáticamente su segundo uso;
 - los invitados de un evento personal pueden cargarse en grupo desde Excel
   (`.xlsx`, `.xls` o `.csv`) usando la plantilla descargable del panel;
+- también se puede pegar una lista libre, numerada o con viñetas, usando una
+  línea por invitado; el panel detecta teléfonos, correos y notas y muestra una
+  vista previa antes de crear los QR;
+- la importación corrige texto UTF-8 mal interpretado para evitar nombres como
+  `SofÃ­a`, conservando correctamente tildes y letras como `ñ`;
+- cada evento personal puede dividir sus invitados en varias listas por
+  promotor, cortesía, mesa o grupo;
+- la tabla admite seleccionar uno, varios o todos los invitados visibles para
+  editarlos o eliminarlos, y también permite vaciar o eliminar una lista
+  completa junto con sus QR y lecturas;
+- cualquier lista o el evento completo se puede descargar en Excel con nombre,
+  contacto, notas, estado, token único, contenido QR y enlace público;
 - administradores y supervisores crean eventos, invitados y códigos;
 - los eventos se pueden editar para corregir nombre, horario, capacidad, notas
   y modalidad antes de que exista actividad;
@@ -77,9 +89,21 @@ La cámara del navegador requiere que `admin.noxpanama.com` se abra mediante
 ```
 
 Este instalador independiente es idempotente y solo crea las tablas `events`,
-`event_guests` y `event_access_log`; no modifica ventas, inventario, usuarios,
-cajas, planilla ni otros datos existentes. Para una instalación completamente
-nueva, `admin/db/schema.sql` ya incluye también estas tres tablas.
+`event_guest_lists`, `event_guests` y `event_access_log`; no modifica ventas,
+inventario, usuarios, cajas, planilla ni otros datos existentes. Para una
+instalación completamente nueva, `admin/db/schema.sql` ya incluye también estas
+tablas.
+
+Si el módulo de eventos ya estaba instalado antes de agregar las listas por
+promotor, importe únicamente esta actualización:
+
+```text
+/home/noxpana/public_html/admin/db/migrate_guest_lists.sql
+```
+
+La migración conserva todos los tokens y QR existentes, crea una **Lista
+general** por cada evento personal y asigna allí sus invitados actuales. Puede
+ejecutarse más de una vez sin duplicar listas ni columnas.
 
 Para habilitar la eliminación individual, múltiple y el reinicio del
 inventario en una base de datos existente, importe una sola vez (o repítalo sin

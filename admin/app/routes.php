@@ -12,8 +12,13 @@ if (function_exists('events_list')) {
     add_route('PATCH', 'events/{id}', 'events_update');
     add_route('DELETE', 'events/{id}', 'events_delete');
     add_route('PATCH', 'events/{id}/status', 'events_status_update');
+    add_route('POST', 'events/{id}/guest-lists', 'event_guest_lists_create');
+    add_route('PATCH', 'event-guest-lists/{id}', 'event_guest_lists_update');
+    add_route('DELETE', 'event-guest-lists/{id}', 'event_guest_lists_delete');
     add_route('POST', 'events/{id}/guests', 'event_guests_create');
     add_route('POST', 'events/{id}/guests/import', 'event_guests_import');
+    add_route('DELETE', 'events/{id}/guests', 'event_guests_delete');
+    add_route('PATCH', 'event-guests/{id}', 'event_guests_update');
     add_route('POST', 'event-guests/{id}/reissue', 'event_guests_reissue');
     add_route('PATCH', 'event-guests/{id}/status', 'event_guests_status_update');
     add_route('POST', 'access/scan', 'access_scan');

@@ -17,8 +17,11 @@ const state = {
   insights: null,
   events: [],
   selectedEvent: null,
+  guestLists: [],
   eventGuests: [],
   eventAccesses: [],
+  selectedGuestListId: "all",
+  selectedGuestIds: new Set(),
   guestImport: {
     fileName: "",
     rows: [],
@@ -434,11 +437,56 @@ async function openEvent(eventId) {
   const changedEvent = Number(state.selectedEvent?.id || 0) !== Number(eventId);
   const detail = await api(`/api/events/${eventId}`);
   state.selectedEvent = detail.event;
+  state.guestLists = detail.guestLists || [];
   state.eventGuests = detail.guests;
   state.eventAccesses = detail.accesses;
-  if (changedEvent) resetGuestImport();
+  if (changedEvent) {
+    state.selectedGuestListId = "all";
+    state.selectedGuestIds.clear();
+    resetGuestImport();
+  } else if (state.selectedGuestListId !== "all"
+    && !state.guestLists.some((list) => Number(list.id) === Number(state.selectedGuestListId))) {
+    state.selectedGuestListId = "all";
+    state.selectedGuestIds.clear();
+  }
   renderEventList();
   renderEventDetail();
+}
+
+function activeGuestList() {
+  if (state.selectedGuestListId === "all") return null;
+  return state.guestLists.find((list) => Number(list.id) === Number(state.selectedGuestListId)) || null;
+}
+
+function filteredEventGuests() {
+  if (state.selectedGuestListId === "all") return state.eventGuests;
+  return state.eventGuests.filter((guest) => Number(guest.listId) === Number(state.selectedGuestListId));
+}
+
+function guestListOptions(selectedValue = "") {
+  return state.guestLists.map((list) => `
+    <option value="${list.id}" ${Number(selectedValue) === Number(list.id) ? "selected" : ""}>
+      ${escapeHtml(list.name)} (${Number(list.guestCount || 0)})
+    </option>`).join("");
+}
+
+function renderGuestLists() {
+  const active = activeGuestList();
+  const filter = $("#guest-list-filter");
+  filter.innerHTML = `<option value="all">Todas las listas (${state.eventGuests.length})</option>${guestListOptions(state.selectedGuestListId)}`;
+  filter.value = state.selectedGuestListId === "all" ? "all" : String(state.selectedGuestListId);
+  $("#guest-list-summary").textContent = `${state.guestLists.length} ${state.guestLists.length === 1 ? "lista" : "listas"}`;
+  $("#rename-guest-list").disabled = !active;
+  $("#delete-guest-list").disabled = !active;
+
+  const preferredListId = active?.id || state.guestLists[0]?.id || "";
+  $("#guest-import-list").innerHTML = guestListOptions(preferredListId);
+  $("#new-guest-list").innerHTML = guestListOptions(preferredListId);
+  $("#edit-guest-form [name=listId]").innerHTML = guestListOptions();
+  const hasLists = state.guestLists.length > 0;
+  $("#guest-import-list").disabled = !hasLists;
+  $("#new-guest-list").disabled = !hasLists;
+  $("#new-guest-form button[type=submit]").disabled = !hasLists;
 }
 
 function renderEventDetail() {
@@ -463,30 +511,107 @@ function renderEventDetail() {
   $("#toggle-event-status").textContent = event.status === "active" ? "Cerrar evento" : "Reactivar evento";
   $("#toggle-event-status").dataset.nextStatus = event.status === "active" ? "closed" : "active";
   $("#toggle-event-status").hidden = !["admin", "supervisor"].includes(state.user.role) || event.status === "cancelled";
+  renderGuestLists();
   renderEventGuests();
   renderEventAccesses();
 }
 
 function renderEventGuests() {
-  $("#guest-count").textContent = `${state.eventGuests.length} invitaciones`;
-  $("#event-guests-table").innerHTML = state.eventGuests.length ? state.eventGuests.map((guest) => {
+  const guests = filteredEventGuests();
+  const activeList = activeGuestList();
+  const canManage = ["admin", "supervisor"].includes(state.user.role);
+  const visibleIds = new Set(guests.map((guest) => Number(guest.id)));
+  [...state.selectedGuestIds].forEach((id) => {
+    if (!visibleIds.has(id)) state.selectedGuestIds.delete(id);
+  });
+  $("#guest-table-title").textContent = activeList?.name || "Todas las listas";
+  $("#guest-count").textContent = state.selectedGuestListId === "all"
+    ? `${guests.length} invitaciones`
+    : `${guests.length} de ${state.eventGuests.length}`;
+  $("#event-guests-table").innerHTML = guests.length ? guests.map((guest) => {
     const active = guest.status === "invited";
     const statusClass = guest.status === "admitted" ? "badge--success" : guest.status === "cancelled" ? "badge--danger" : "badge--gold";
     const statusName = guest.status === "admitted" ? "Admitido" : guest.status === "cancelled" ? "Cancelado" : "Invitado";
-    const canManage = ["admin", "supervisor"].includes(state.user.role);
     const managerActions = canManage && guest.status !== "admitted"
       ? `<button class="table-action" data-guest-reissue="${guest.id}">Reemitir</button>
          <button class="table-action" data-guest-status="${guest.id}" data-status="${active ? "cancelled" : "invited"}">${active ? "Cancelar" : "Restaurar"}</button>`
       : "";
     return `<tr>
+      <td class="select-column">${canManage ? `<input class="row-select" type="checkbox" data-select-guest="${guest.id}" aria-label="Seleccionar ${escapeHtml(guest.fullName)}" ${state.selectedGuestIds.has(Number(guest.id)) ? "checked" : ""}>` : ""}</td>
       <td class="guest-name-cell"><strong>${escapeHtml(guest.fullName)}</strong><small>${escapeHtml(guest.notes || "Sin nota")}</small></td>
+      <td>${escapeHtml(guest.listName || "Sin lista")}</td>
       <td>${escapeHtml(guest.contact || "—")}</td>
       <td><span class="badge ${statusClass}">${statusName}</span></td>
       <td>${guest.admittedAt ? dateTime.format(parseServerDate(guest.admittedAt)) : "Pendiente"}</td>
-      <td>${canManage ? `<button class="table-action" data-guest-qr="${guest.id}">Ver QR</button>
+      <td>${canManage ? `<button class="table-action" data-guest-edit="${guest.id}">Editar</button>
+        <button class="table-action" data-guest-qr="${guest.id}">Ver QR</button>
         <button class="table-action" data-guest-share="${guest.id}">Compartir enlace</button>` : ""}${managerActions}</td>
     </tr>`;
-  }).join("") : '<tr><td colspan="5"><p class="empty-state">Agregue invitados para generar sus códigos personales.</p></td></tr>';
+  }).join("") : '<tr><td colspan="7"><p class="empty-state">Esta lista todavía no tiene invitados.</p></td></tr>';
+
+  const selectedCount = state.selectedGuestIds.size;
+  $("#guest-selection-toolbar").hidden = !canManage;
+  $("#guest-selection-count").textContent = `${selectedCount} ${selectedCount === 1 ? "seleccionado" : "seleccionados"}`;
+  $("#edit-selected-guest").disabled = selectedCount !== 1;
+  $("#delete-selected-guests").disabled = selectedCount < 1;
+  $("#clear-guest-list").disabled = guests.length < 1;
+  $("#clear-guest-list").textContent = state.selectedGuestListId === "all"
+    ? "Eliminar todos los invitados"
+    : "Vaciar lista completa";
+  $("#download-guest-list").disabled = guests.length < 1;
+  const selectAll = $("#select-all-event-guests");
+  selectAll.hidden = !canManage;
+  selectAll.checked = guests.length > 0 && guests.every((guest) => state.selectedGuestIds.has(Number(guest.id)));
+  selectAll.indeterminate = selectedCount > 0 && !selectAll.checked;
+}
+
+function openGuestEditor(guestId) {
+  const guest = state.eventGuests.find((item) => Number(item.id) === Number(guestId));
+  if (!guest) return;
+  const form = $("#edit-guest-form");
+  form.reset();
+  form.elements.id.value = guest.id;
+  form.elements.fullName.value = guest.fullName;
+  form.elements.contact.value = guest.contact || "";
+  form.elements.notes.value = guest.notes || "";
+  form.elements.listId.innerHTML = guestListOptions(guest.listId);
+  form.elements.listId.value = String(guest.listId || state.guestLists[0]?.id || "");
+  $("#edit-guest-dialog").showModal();
+}
+
+function guestStatusLabel(status) {
+  return status === "admitted" ? "Admitido" : status === "cancelled" ? "Cancelado" : "Invitado";
+}
+
+async function downloadGuestList() {
+  const guests = filteredEventGuests();
+  if (!guests.length || !state.selectedEvent) return;
+  const XLSX = await loadSpreadsheetLibrary();
+  const rows = guests.map((guest) => ({
+    "Lista": guest.listName || "Sin lista",
+    "Nombre completo": guest.fullName,
+    "Contacto": guest.contact || "",
+    "Notas": guest.notes || "",
+    "Estado": guestStatusLabel(guest.status),
+    "Entrada registrada": guest.admittedAt ? dateTime.format(parseServerDate(guest.admittedAt)) : "",
+    "Token único": guest.qrToken,
+    "Contenido QR": `NOX1:${guest.qrToken}`,
+    "Enlace público": invitationPublicUrl(guest.qrToken),
+    "Fecha de creación": guest.createdAt ? dateTime.format(parseServerDate(guest.createdAt)) : ""
+  }));
+  const sheet = XLSX.utils.json_to_sheet(rows);
+  sheet["!cols"] = [
+    { wch: 24 }, { wch: 30 }, { wch: 28 }, { wch: 34 }, { wch: 16 },
+    { wch: 22 }, { wch: 36 }, { wch: 42 }, { wch: 72 }, { wch: 22 }
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "Invitados");
+  const listName = activeGuestList()?.name || "todas-las-listas";
+  XLSX.writeFile(
+    workbook,
+    `${safeFileName(state.selectedEvent.name)}-${safeFileName(listName)}-invitados.xlsx`,
+    { compression: true }
+  );
 }
 
 const GUEST_IMPORT_MAX_ROWS = 500;
@@ -502,6 +627,7 @@ function resetGuestImport() {
   const input = $("#guest-import-file");
   if (!input) return;
   input.value = "";
+  $("#guest-paste-text").value = "";
   $("#guest-import-file-name").textContent = "Formatos admitidos: .xlsx, .xls y .csv · máximo 500 invitados";
   $("#guest-import-preview").hidden = true;
   $("#guest-import-table").replaceChildren();
@@ -530,7 +656,7 @@ function loadSpreadsheetLibrary() {
 }
 
 function normalizeSpreadsheetHeader(value) {
-  return String(value ?? "")
+  return repairGuestTextEncoding(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -538,12 +664,76 @@ function normalizeSpreadsheetHeader(value) {
     .trim();
 }
 
+const windows1252ByteByCharacter = new Map([
+  ["€", 0x80], ["‚", 0x82], ["ƒ", 0x83], ["„", 0x84], ["…", 0x85],
+  ["†", 0x86], ["‡", 0x87], ["ˆ", 0x88], ["‰", 0x89], ["Š", 0x8a],
+  ["‹", 0x8b], ["Œ", 0x8c], ["Ž", 0x8e], ["‘", 0x91], ["’", 0x92],
+  ["“", 0x93], ["”", 0x94], ["•", 0x95], ["–", 0x96], ["—", 0x97],
+  ["˜", 0x98], ["™", 0x99], ["š", 0x9a], ["›", 0x9b], ["œ", 0x9c],
+  ["ž", 0x9e], ["Ÿ", 0x9f]
+]);
+
+function decodeMojibakeSequence(sequence) {
+  const bytes = [];
+  for (const character of sequence) {
+    const code = character.codePointAt(0);
+    const byte = code <= 0xff ? code : windows1252ByteByCharacter.get(character);
+    if (byte === undefined) return sequence;
+    bytes.push(byte);
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
+  } catch {
+    return sequence;
+  }
+}
+
+function repairGuestTextEncoding(value) {
+  const source = String(value ?? "");
+  const repaired = source.replace(/(?:Ã.|Â.|â..)+/gu, (sequence) => decodeMojibakeSequence(sequence));
+  return repaired.normalize("NFC");
+}
+
+function cleanGuestText(value) {
+  return repairGuestTextEncoding(value)
+    .replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/gu, " ")
+    .replace(/[\u200b\u2060\ufeff]/gu, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
 function spreadsheetCellText(value) {
-  return String(value ?? "").trim();
+  return cleanGuestText(value);
 }
 
 function guestImportColumn(headers, aliases) {
   return headers.findIndex((header) => aliases.includes(normalizeSpreadsheetHeader(header)));
+}
+
+function validateGuestImportRows(rows) {
+  const seen = new Map();
+  rows.forEach((row) => {
+    row.fullName = cleanGuestText(row.fullName);
+    row.contact = cleanGuestText(row.contact);
+    row.notes = cleanGuestText(row.notes);
+    row.issues = [];
+    if (row.fullName.length < 2 || row.fullName.length > 160) row.issues.push("El nombre debe tener entre 2 y 160 caracteres.");
+    if (row.contact.length > 160) row.issues.push("El contacto supera 160 caracteres.");
+    if (row.notes.length > 300) row.issues.push("Las notas superan 300 caracteres.");
+    const fingerprint = [row.fullName, row.contact, row.notes]
+      .map((value) => value.toLocaleLowerCase("es"))
+      .join("\u0000");
+    if (fingerprint !== "\u0000\u0000" && seen.has(fingerprint)) {
+      row.issues.push(`Repite exactamente la fila ${seen.get(fingerprint)}.`);
+    } else {
+      seen.set(fingerprint, row.rowNumber);
+    }
+  });
+  const errors = rows.flatMap((row) => row.issues.map((issue) => `Fila ${row.rowNumber}: ${issue}`));
+  if (rows.length > GUEST_IMPORT_MAX_ROWS) {
+    errors.unshift(`La lista contiene ${rows.length} invitados; el máximo por importación es ${GUEST_IMPORT_MAX_ROWS}.`);
+  }
+  return { rows, errors };
 }
 
 function parseGuestWorkbook(fileData) {
@@ -579,7 +769,6 @@ function parseGuestWorkbook(fileData) {
   const contactIndex = guestImportColumn(headers, ["contacto", "telefono o correo", "telefono", "correo", "email", "e mail"]);
   const notesIndex = guestImportColumn(headers, ["notas", "nota", "mesa promotor o cortesia"]);
   const rows = [];
-  const seen = new Map();
 
   grid.slice(headerIndex + 1).forEach((source, offset) => {
     const fullName = spreadsheetCellText(source[nameIndex]);
@@ -587,25 +776,80 @@ function parseGuestWorkbook(fileData) {
     const notes = notesIndex >= 0 ? spreadsheetCellText(source[notesIndex]) : "";
     if (!fullName && !contact && !notes) return;
     const rowNumber = headerIndex + offset + 2;
-    const issues = [];
-    if (fullName.length < 2 || fullName.length > 160) issues.push("El nombre debe tener entre 2 y 160 caracteres.");
-    if (contact.length > 160) issues.push("El contacto supera 160 caracteres.");
-    if (notes.length > 300) issues.push("Las notas superan 300 caracteres.");
-    const fingerprint = [fullName, contact, notes].map((value) => value.toLocaleLowerCase("es")).join("\u0000");
-    if (fingerprint !== "\u0000\u0000" && seen.has(fingerprint)) {
-      issues.push(`Repite exactamente la fila ${seen.get(fingerprint)}.`);
-    } else {
-      seen.set(fingerprint, rowNumber);
-    }
-    rows.push({ rowNumber, fullName, contact, notes, issues });
+    rows.push({ rowNumber, fullName, contact, notes, issues: [] });
   });
 
   if (!rows.length) throw new Error("El archivo no contiene invitados debajo de los encabezados.");
-  const errors = rows.flatMap((row) => row.issues.map((issue) => `Fila ${row.rowNumber}: ${issue}`));
-  if (rows.length > GUEST_IMPORT_MAX_ROWS) {
-    errors.unshift(`El archivo contiene ${rows.length} invitados; el máximo por importación es ${GUEST_IMPORT_MAX_ROWS}.`);
+  return validateGuestImportRows(rows);
+}
+
+function pastedGuestContact(line) {
+  const matches = [];
+  const email = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu);
+  if (email) matches.push({ index: email.index, value: email[0] });
+  for (const match of line.matchAll(/\+?\d[\d\s()./-]{5,}\d/gu)) {
+    const digitCount = (match[0].match(/\d/g) || []).length;
+    if (digitCount >= 7 && digitCount <= 15) {
+      matches.push({ index: match.index, value: match[0] });
+    }
   }
-  return { rows, errors };
+  return matches.sort((left, right) => left.index - right.index)[0] || null;
+}
+
+function parsePastedGuestLine(source, rowNumber) {
+  let line = repairGuestTextEncoding(source)
+    .replace(/\t+/g, " | ")
+    .replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/gu, " ")
+    .replace(/[\u200b\u2060\ufeff]/gu, "")
+    .trim();
+  line = line
+    .replace(/^(?:\d{1,4}\s*[\.):]\s*|[A-Za-z]\s*[\.)]\s*|[•●▪◦*#\-–—]\s*)/u, "")
+    .replace(/^\d{1,4}\s+(?=\p{L})/u, "")
+    .trim();
+  if (!line) return null;
+
+  let fullName = "";
+  let contact = "";
+  let notes = "";
+  const contactMatch = pastedGuestContact(line);
+  if (contactMatch) {
+    fullName = cleanGuestText(line.slice(0, contactMatch.index))
+      .replace(/[|,;:\-–—]+$/u, "")
+      .trim();
+    contact = cleanGuestText(contactMatch.value);
+    const remainder = cleanGuestText(line.slice(contactMatch.index + contactMatch.value.length))
+      .replace(/^[|,;:\-–—]+/u, "")
+      .trim();
+    if (fullName) {
+      notes = remainder;
+    } else {
+      fullName = remainder;
+    }
+  } else {
+    const parts = line.split(/\s*[|;,]\s*/u).map(cleanGuestText).filter(Boolean);
+    if (parts.length > 1) {
+      fullName = parts.shift();
+      notes = parts.join(" ");
+    } else {
+      const noteMatch = line.match(/\s+(?:nota|notas)\s*:?\s+/iu);
+      if (noteMatch) {
+        fullName = cleanGuestText(line.slice(0, noteMatch.index));
+        notes = cleanGuestText(line.slice(noteMatch.index + noteMatch[0].length));
+      } else {
+        fullName = cleanGuestText(line);
+      }
+    }
+  }
+  return { rowNumber, fullName, contact, notes, issues: [] };
+}
+
+function parsePastedGuests(value) {
+  const rows = String(value ?? "")
+    .split(/\r?\n/)
+    .map((line, index) => parsePastedGuestLine(line, index + 1))
+    .filter(Boolean);
+  if (!rows.length) throw new Error("Pegue al menos un invitado, usando una línea por persona.");
+  return validateGuestImportRows(rows);
 }
 
 function renderGuestImportPreview() {
@@ -2308,8 +2552,11 @@ $("#delete-event-form").addEventListener("submit", async (event) => {
     });
     $("#delete-event-dialog").close();
     state.selectedEvent = null;
+    state.guestLists = [];
     state.eventGuests = [];
     state.eventAccesses = [];
+    state.selectedGuestListId = "all";
+    state.selectedGuestIds.clear();
     resetGuestImport();
     await loadEvents();
     toast(`Evento eliminado junto con ${result.guestCount} invitados y ${result.accessCount} lecturas.`);
@@ -2320,8 +2567,94 @@ $("#delete-event-form").addEventListener("submit", async (event) => {
   }
 });
 
+$("#new-guest-list-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const selected = state.selectedEvent;
+  if (!selected) return;
+  const values = formValues(form);
+  try {
+    const created = await api(`/api/events/${selected.id}/guest-lists`, {
+      method: "POST",
+      body: JSON.stringify({ name: values.name })
+    });
+    form.reset();
+    state.selectedGuestListId = Number(created.id);
+    state.selectedGuestIds.clear();
+    await openEvent(selected.id);
+    toast(`Lista “${created.name}” creada.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#guest-list-filter").addEventListener("change", (event) => {
+  state.selectedGuestListId = event.currentTarget.value === "all"
+    ? "all"
+    : Number(event.currentTarget.value);
+  state.selectedGuestIds.clear();
+  renderGuestLists();
+  renderEventGuests();
+});
+
+$("#rename-guest-list").addEventListener("click", async () => {
+  const list = activeGuestList();
+  if (!list || !state.selectedEvent) return;
+  const name = window.prompt("Nuevo nombre de la lista:", list.name);
+  if (name === null || name.trim() === "" || name.trim() === list.name) return;
+  try {
+    await api(`/api/event-guest-lists/${list.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: name.trim() })
+    });
+    await openEvent(state.selectedEvent.id);
+    toast("Lista renombrada.");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#delete-guest-list").addEventListener("click", async () => {
+  const list = activeGuestList();
+  if (!list || !state.selectedEvent) return;
+  const confirmation = window.prompt(
+    `Se eliminará la lista “${list.name}” junto con sus ${Number(list.guestCount || 0)} invitados y lecturas. Escriba exactamente el nombre de la lista para confirmar:`
+  );
+  if (confirmation === null) return;
+  try {
+    const result = await api(`/api/event-guest-lists/${list.id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmation })
+    });
+    state.selectedGuestListId = result.replacementListId
+      ? Number(result.replacementListId)
+      : "all";
+    state.selectedGuestIds.clear();
+    await openEvent(state.selectedEvent.id);
+    toast(`Lista eliminada junto con ${result.guestCount} invitados.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
 $("#guest-import-file").addEventListener("change", async (event) => {
+  $("#guest-paste-text").value = "";
   await prepareGuestImport(event.currentTarget.files?.[0]);
+});
+
+$("#parse-pasted-guests").addEventListener("click", () => {
+  const pasted = $("#guest-paste-text").value;
+  try {
+    const parsed = parsePastedGuests(pasted);
+    $("#guest-import-file").value = "";
+    $("#guest-import-file-name").textContent = "Lista pegada directamente";
+    state.guestImport = { fileName: "Lista pegada", ...parsed };
+    renderGuestImportPreview();
+  } catch (error) {
+    state.guestImport = guestImportEmptyState("Lista pegada");
+    state.guestImport.errors = [error.message];
+    renderGuestImportPreview();
+  }
 });
 
 $("#clear-guest-import").addEventListener("click", resetGuestImport);
@@ -2338,6 +2671,7 @@ $("#import-guests-button").addEventListener("click", async (event) => {
     const result = await api(`/api/events/${selected.id}/guests/import`, {
       method: "POST",
       body: JSON.stringify({
+        listId: Number($("#guest-import-list").value),
         guests: rows.map((row) => ({
           fullName: row.fullName,
           contact: row.contact || null,
@@ -2360,12 +2694,17 @@ $("#new-guest-form").addEventListener("submit", async (event) => {
   const selected = state.selectedEvent;
   if (!selected) return;
   const values = formValues(form);
+  const guestName = cleanGuestText(values.fullName);
   try {
     const guest = await api(`/api/events/${selected.id}/guests`, {
       method: "POST",
-      body: JSON.stringify({ fullName: values.fullName, contact: values.contact || null, notes: values.notes || null })
+      body: JSON.stringify({
+        listId: Number(values.listId),
+        fullName: guestName,
+        contact: cleanGuestText(values.contact) || null,
+        notes: cleanGuestText(values.notes) || null
+      })
     });
-    const guestName = values.fullName;
     form.reset();
     toast("Invitación personal creada.");
     await openEvent(selected.id);
@@ -2374,13 +2713,18 @@ $("#new-guest-form").addEventListener("submit", async (event) => {
 });
 
 $("#event-guests-table").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-guest-edit]");
   const qrButton = event.target.closest("[data-guest-qr]");
   const shareButton = event.target.closest("[data-guest-share]");
   const reissueButton = event.target.closest("[data-guest-reissue]");
   const statusButton = event.target.closest("[data-guest-status]");
-  const guestId = Number(qrButton?.dataset.guestQr || shareButton?.dataset.guestShare || reissueButton?.dataset.guestReissue || statusButton?.dataset.guestStatus || 0);
+  const guestId = Number(editButton?.dataset.guestEdit || qrButton?.dataset.guestQr || shareButton?.dataset.guestShare || reissueButton?.dataset.guestReissue || statusButton?.dataset.guestStatus || 0);
   const guest = state.eventGuests.find((item) => Number(item.id) === guestId);
   if (!guest || !state.selectedEvent) return;
+  if (editButton) {
+    openGuestEditor(guest.id);
+    return;
+  }
   if (qrButton) {
     showAccessQr(guest.qrToken, guest.fullName, `${state.selectedEvent.name} · Invitación personal`, invitationPublicUrl(guest.qrToken));
     return;
@@ -2409,6 +2753,98 @@ $("#event-guests-table").addEventListener("click", async (event) => {
       toast(statusButton.dataset.status === "cancelled" ? "Invitación cancelada." : "Invitación restaurada.");
       await openEvent(state.selectedEvent.id);
     } catch (error) { toast(error.message, true); }
+  }
+});
+
+$("#event-guests-table").addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-select-guest]");
+  if (!checkbox) return;
+  const guestId = Number(checkbox.dataset.selectGuest);
+  if (checkbox.checked) state.selectedGuestIds.add(guestId);
+  else state.selectedGuestIds.delete(guestId);
+  renderEventGuests();
+});
+
+$("#select-all-event-guests").addEventListener("change", (event) => {
+  filteredEventGuests().forEach((guest) => {
+    if (event.currentTarget.checked) state.selectedGuestIds.add(Number(guest.id));
+    else state.selectedGuestIds.delete(Number(guest.id));
+  });
+  renderEventGuests();
+});
+
+$("#edit-selected-guest").addEventListener("click", () => {
+  if (state.selectedGuestIds.size !== 1) return;
+  openGuestEditor([...state.selectedGuestIds][0]);
+});
+
+$("#edit-guest-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") return $("#edit-guest-dialog").close();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  try {
+    await api(`/api/event-guests/${values.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        listId: Number(values.listId),
+        fullName: cleanGuestText(values.fullName),
+        contact: cleanGuestText(values.contact) || null,
+        notes: cleanGuestText(values.notes) || null
+      })
+    });
+    $("#edit-guest-dialog").close();
+    state.selectedGuestIds.clear();
+    await openEvent(state.selectedEvent.id);
+    toast("Invitado actualizado sin cambiar su QR.");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#delete-selected-guests").addEventListener("click", async () => {
+  if (!state.selectedEvent || !state.selectedGuestIds.size) return;
+  const ids = [...state.selectedGuestIds];
+  if (!window.confirm(`Se eliminarán permanentemente ${ids.length} invitados, sus QR y lecturas. ¿Desea continuar?`)) return;
+  try {
+    const result = await api(`/api/events/${state.selectedEvent.id}/guests`, {
+      method: "DELETE",
+      body: JSON.stringify({ ids })
+    });
+    state.selectedGuestIds.clear();
+    await openEvent(state.selectedEvent.id);
+    toast(`${result.deleted} invitados y ${result.accessCount} lecturas eliminados.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#clear-guest-list").addEventListener("click", async () => {
+  const selected = state.selectedEvent;
+  const list = activeGuestList();
+  const guests = filteredEventGuests();
+  if (!selected || !guests.length) return;
+  const scope = list ? `la lista “${list.name}”` : `todas las listas de “${selected.name}”`;
+  if (!window.confirm(`Se eliminarán permanentemente los ${guests.length} invitados de ${scope}, sus QR y lecturas. ¿Desea continuar?`)) return;
+  try {
+    const result = await api(`/api/events/${selected.id}/guests`, {
+      method: "DELETE",
+      body: JSON.stringify({ all: true, listId: list?.id || null })
+    });
+    state.selectedGuestIds.clear();
+    await openEvent(selected.id);
+    toast(`${result.deleted} invitados y ${result.accessCount} lecturas eliminados.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#download-guest-list").addEventListener("click", async () => {
+  try {
+    await downloadGuestList();
+    toast("Lista de invitados descargada con tokens y enlaces.");
+  } catch (error) {
+    toast(error.message, true);
   }
 });
 
