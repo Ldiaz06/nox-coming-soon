@@ -1342,7 +1342,7 @@ function pos_sale_create(array $params = [])
         $paymentTotal = money_round(array_reduce($payments, fn (float $sum, array $payment): float => $sum + $payment['amount'], 0.0));
         if (abs($paymentTotal - $total) > 0.009) throw new ApiError('Los pagos deben coincidir exactamente con el total.');
 
-        $receipt = 'NOX-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
+        $receipt = 'NOOX-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
         $sale = $pdo->prepare('INSERT INTO sales (receipt_number, cash_session_id, cashier_id, subtotal, tax, discount, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
         $sale->execute([$receipt, $sessionId, $user['id'], $subtotal, $tax, $discount, $total]);
         $saleId = (int) $pdo->lastInsertId();

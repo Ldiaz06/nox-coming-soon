@@ -1,7 +1,7 @@
--- NOX Control — migración independiente de eventos y accesos QR
+-- NOOX Control — migración independiente de eventos y accesos QR
 -- Compatible con MySQL 8.0+ y phpMyAdmin.
 --
--- Use este archivo cuando la base de datos de NOX Control ya existe.
+-- Use este archivo cuando la base de datos de NOOX Control ya existe.
 -- Solo agrega las tablas del módulo de eventos; no elimina ni modifica
 -- ventas, inventario, usuarios, cajas, planilla u otros datos existentes.
 -- Puede ejecutarse más de una vez sin duplicar tablas ni registros.

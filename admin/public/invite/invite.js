@@ -172,7 +172,7 @@ portal("#download-qr").addEventListener("click", () => {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-|-$/g, "")
-    .toLowerCase() || "nox"}.png`;
+    .toLowerCase() || "noox"}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
 });
@@ -183,7 +183,7 @@ portal("#share-invitation").addEventListener("click", async () => {
     if (navigator.share) {
       await navigator.share({
         title: `Invitación · ${portalState.invitation.event.name}`,
-        text: `${portalState.invitation.guestName}, esta es tu invitación personal a NOX.`,
+        text: `${portalState.invitation.guestName}, esta es tu invitación personal a NOOX.`,
         url
       });
       return;

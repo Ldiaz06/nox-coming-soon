@@ -1,7 +1,7 @@
--- NOX Control — migración independiente para eliminación de inventario
+-- NOOX Control — migración independiente para eliminación de inventario
 -- Compatible con MySQL 8.0+ y phpMyAdmin.
 --
--- Use este archivo cuando la base de datos de NOX Control ya existe.
+-- Use este archivo cuando la base de datos de NOOX Control ya existe.
 -- Agrega la marca de eliminación lógica a artículos y productos y, en bases
 -- anteriores, la columna de inventario reservado requerida por esta operación.
 -- No elimina ni modifica inventario, compras, ventas, cuentas o auditorías.

@@ -1,4 +1,4 @@
--- NOX Control — catálogo base de artículos para Panamá
+-- NOOX Control — catálogo base de artículos para Panamá
 -- Ejecutar después de schema.sql.
 -- Es idempotente: INSERT IGNORE conserva cualquier SKU que ya exista.
 -- Existencias, mínimos y costos empiezan en cero para no inventar datos.

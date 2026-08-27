@@ -1,4 +1,4 @@
--- NOX Control — productos de cerveza para el POS
+-- NOOX Control — productos de cerveza para el POS
 -- Ejecutar después de schema.sql. Es idempotente y puede repetirse.
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;

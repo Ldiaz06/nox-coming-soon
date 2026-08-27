@@ -162,7 +162,7 @@ promoter("#created-invitations").addEventListener("click", async (event) => {
   const guest = promoterState.created[index];
   if (!guest) return;
   if (share && navigator.share) {
-    try { await navigator.share({ title: "Invitación NOX", text: `${guest.fullName}, esta es tu invitación personal.`, url: guest.invitationUrl }); } catch {}
+    try { await navigator.share({ title: "Invitación NOOX", text: `${guest.fullName}, esta es tu invitación personal.`, url: guest.invitationUrl }); } catch {}
   } else {
     await copyText(guest.invitationUrl);
     event.target.textContent = "Copiado";

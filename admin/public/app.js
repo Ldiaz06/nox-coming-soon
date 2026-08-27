@@ -27,7 +27,7 @@ const state = {
     rows: [],
     errors: []
   },
-  qrDownloadName: "nox-acceso.png",
+  qrDownloadName: "noox-acceso.png",
   qrShareUrl: "",
   scanner: {
     stream: null,
@@ -960,7 +960,7 @@ async function shareInvitationLink(guest, eventName) {
   if (navigator.share) {
     await navigator.share({
       title: `Invitación · ${eventName}`,
-      text: `${guest.fullName}, esta es tu invitación personal a NOX.`,
+      text: `${guest.fullName}, esta es tu invitación personal a NOOX.`,
       url
     });
     return;
@@ -974,7 +974,7 @@ function showAccessQr(token, title, subtitle, publicUrl = "") {
   container.replaceChildren();
   $("#qr-dialog-title").textContent = title;
   $("#qr-dialog-subtitle").textContent = subtitle;
-  state.qrDownloadName = `${safeFileName(title)}-nox.png`;
+  state.qrDownloadName = `${safeFileName(title)}-noox.png`;
   state.qrShareUrl = publicUrl;
   $("#qr-public-link").hidden = !publicUrl;
   $("#qr-public-url").value = publicUrl;
@@ -2942,7 +2942,7 @@ $("#share-invitation-link").addEventListener("click", async () => {
     if (navigator.share) {
       await navigator.share({
         title: `Invitación · ${$("#qr-dialog-title").textContent}`,
-        text: "Esta es tu invitación personal a NOX.",
+        text: "Esta es tu invitación personal a NOOX.",
         url: state.qrShareUrl
       });
       return;

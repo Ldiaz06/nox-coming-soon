@@ -1,6 +1,6 @@
-# NOX — Coming Soon
+# NOOX — Coming Soon
 
-Landing page estática para **NOX**, diseñada en negro y dorado alrededor del concepto *The Celestial Eclipse*.
+Landing page estática para **NOOX**, diseñada en negro y dorado alrededor del concepto *The Celestial Eclipse*.
 
 El repositorio también incluye `admin/`, una aplicación privada independiente para administrar ventas, inventario, cajas, reportes, personal, planilla y accesos QR para eventos sobre PHP, Apache, MySQL y JavaScript del navegador. No usa Node.js y no se publica mediante GitHub Pages.
 
@@ -8,11 +8,11 @@ El repositorio también incluye `admin/`, una aplicación privada independiente 
 
 - Logo oficial original sin modificaciones, acompañado por halo, órbitas y partículas animadas sin librerías pesadas.
 - Órbitas animadas alineadas con las dos “O” entrelazadas del logotipo.
-- Enlaces oficiales de Instagram y TikTok: `@NoxPanama`.
-- Menú digital disponible directamente en `/Menu/` y `/menu/`, alimentado por el archivo editable `Menu/menu.json`, con selector entre “VIP Premium” y “Clásicos & Cervezas”.
-- SEO local para NOX Panamá con metadatos sociales, JSON-LD, `robots.txt`, sitemap XML y rutas canónicas.
-- Promoción mensual de cervezas nacionales configurada en `Menu/menu.json`.
-- El menú abre por defecto en “Clásicos & Cervezas” y la portada enlaza la ubicación verificada de NOX en Calle 67 Este, Ciudad de Panamá, directamente con Google Maps.
+- Enlaces oficiales de Instagram y TikTok: `@NooxPanama`.
+- Menú digital disponible directamente en `/menu/`, alimentado por el archivo editable `menu/menu.json`, con selector entre “VIP Premium” y “Clásicos & Cervezas”.
+- SEO local para NOOX Panamá y la variante de búsqueda Nox Panamá con metadatos, JSON-LD, `robots.txt`, sitemap XML y rutas canónicas.
+- Promoción mensual de cervezas nacionales configurada en `menu/menu.json`.
+- El menú abre por defecto en “Clásicos & Cervezas” y la portada enlaza la ubicación verificada de NOOX en Calle 67 Este, Ciudad de Panamá, directamente con Google Maps.
 - Mapa integrado en la portada y accesos directos para abrir la ubicación en Google Maps o Waze.
 - Diseño responsive para móvil, tablet y escritorio.
 - Accesibilidad: navegación por teclado, enlace de salto, contraste y soporte para movimiento reducido.

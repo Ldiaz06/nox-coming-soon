@@ -229,7 +229,7 @@ function event_guest_lists_ensure_schema(PDO $pdo): void
         }
         $ready = true;
     } catch (Throwable $error) {
-        error_log('NOX guest lists schema update failed: ' . $error->__toString());
+        error_log('NOOX guest lists schema update failed: ' . $error->__toString());
         throw new ApiError(
             'La base de datos de Eventos necesita actualizarse. Ejecute admin/db/migrate_guest_lists.sql y admin/db/migrate_promoter_portal.sql en phpMyAdmin, y vuelva a intentar.',
             503
@@ -240,7 +240,7 @@ function event_guest_lists_ensure_schema(PDO $pdo): void
                 $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
                 $release->execute(['nox_event_guest_lists_schema_v1']);
             } catch (Throwable $releaseError) {
-                error_log('NOX guest lists schema lock release failed: ' . $releaseError->getMessage());
+                error_log('NOOX guest lists schema lock release failed: ' . $releaseError->getMessage());
             }
         }
     }
@@ -1129,7 +1129,7 @@ function event_guests_status_update(array $params)
 function access_reason_message(string $reason): string
 {
     $messages = [
-        'invalid' => 'El código no pertenece a NOX.',
+        'invalid' => 'El código no pertenece a NOOX.',
         'inactive' => 'El evento no está activo.',
         'not_started' => 'La ventana de acceso todavía no ha iniciado.',
         'ended' => 'La ventana de acceso ya terminó.',

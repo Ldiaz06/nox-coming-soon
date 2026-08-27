@@ -250,14 +250,14 @@ function public_invitation_google_save_url(array $invitation): string
                     'id' => $objectId,
                     'classId' => $classId,
                     'state' => 'ACTIVE',
-                    'cardTitle' => public_invitation_localized('NOX Panamá'),
+                    'cardTitle' => public_invitation_localized('NOOX Panamá'),
                     'header' => public_invitation_localized($invitation['guestName']),
                     'subheader' => public_invitation_localized($invitation['eventName']),
                     'hexBackgroundColor' => '#11100e',
                     'barcode' => [
                         'type' => 'QR_CODE',
                         'value' => 'NOX1:' . $invitation['qrToken'],
-                        'alternateText' => 'Invitación personal NOX',
+                        'alternateText' => 'Invitación personal NOOX',
                     ],
                     'textModulesData' => [
                         [
@@ -392,7 +392,7 @@ function public_invitation_apple_pass(array $invitation): array
             'format' => 'PKBarcodeFormatQR',
             'message' => 'NOX1:' . $invitation['qrToken'],
             'messageEncoding' => 'iso-8859-1',
-            'altText' => 'Invitación personal NOX',
+            'altText' => 'Invitación personal NOOX',
         ];
         $pass = [
             'formatVersion' => 1,
@@ -400,9 +400,9 @@ function public_invitation_apple_pass(array $invitation): array
             'serialNumber' => 'guest-' . $invitation['id'] . '-'
                 . substr(hash('sha256', $invitation['qrToken']), 0, 12),
             'teamIdentifier' => (string) nox_config_value('wallet.apple.team_identifier', ''),
-            'organizationName' => 'NOX Panamá',
+            'organizationName' => 'NOOX Panamá',
             'description' => 'Invitación para ' . $invitation['eventName'],
-            'logoText' => 'NOX',
+            'logoText' => 'NOOX',
             'foregroundColor' => 'rgb(255, 255, 255)',
             'backgroundColor' => 'rgb(17, 16, 14)',
             'labelColor' => 'rgb(230, 202, 122)',
@@ -539,7 +539,7 @@ function public_invitation_apple_wallet(array $params = [])
     $invitation = public_invitation_from_request();
     public_invitation_require_usable($invitation);
     $file = public_invitation_apple_pass($invitation);
-    $filename = public_invitation_safe_filename($invitation['eventName']) . '-nox.pkpass';
+    $filename = public_invitation_safe_filename($invitation['eventName']) . '-noox.pkpass';
 
     try {
         $size = filesize($file['path']);

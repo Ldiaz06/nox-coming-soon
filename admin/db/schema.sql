@@ -1,4 +1,4 @@
--- NOX Control — instalador completo e idempotente de MySQL
+-- NOOX Control — instalador completo e idempotente de MySQL
 -- Compatible con MySQL 8.0+ y phpMyAdmin.
 --
 -- Crea la base noxpana_noxpa cuando no existe, la selecciona y prepara todas
@@ -598,7 +598,7 @@ BEGIN
       ADD COLUMN deleted_at DATETIME NULL AFTER active;
   END IF;
 
-  -- El flujo de compras de NOX no administra proveedores. En instalaciones
+  -- El flujo de compras de NOOX no administra proveedores. En instalaciones
   -- anteriores se eliminan de forma segura la relación, la columna y la tabla.
   SELECT COUNT(*) INTO constraint_exists
   FROM information_schema.table_constraints
@@ -1032,7 +1032,7 @@ BEGIN
   SELECT
     'admin',
     '$2y$12$Fh4SPyFi.FP8EwJxggVMzu2xRC8zbPB1zqYOIsyE7vIBM9NQmyiYO',
-    'Administrador NOX',
+    'Administrador NOOX',
     'admin',
     'active'
   WHERE NOT EXISTS (SELECT 1 FROM users);

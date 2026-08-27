@@ -1,5 +1,5 @@
 {
-  "brand": "NOX",
+  "brand": "NOOX",
   "eyebrow": "The Celestial Eclipse",
   "tagline": "The Night Must Go On",
   "location": "Panamá",
@@ -16,7 +16,7 @@
           "id": "signatures",
           "title": "Signatures",
           "items": [
-            { "name": "NOX", "subtitle": "The Eclipse", "description": "Single Malt, carbón activado, vermut rosso, bitter de cacao, ahumado con madera de nogal.", "price": 22 },
+            { "name": "NOOX", "subtitle": "The Eclipse", "description": "Single Malt, carbón activado, vermut rosso, bitter de cacao, ahumado con madera de nogal.", "price": 22 },
             { "name": "The Secret", "subtitle": "The Hidden Door", "description": "Ginebra premium, licor de flor de saúco, tónica de lavanda, esencia de bergamota.", "price": 18 },
             { "name": "Midnight Velvet", "description": "Vodka ultra-premium, café Geisha clarificado, reducción de higos, espuma de vainilla.", "price": 20 },
             { "name": "Crescent Moon", "description": "Tequila reposado, mezcal, cordial de mandarina y jengibre, borde de sal de oro.", "price": 22 }

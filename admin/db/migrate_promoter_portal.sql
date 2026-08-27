@@ -1,4 +1,4 @@
--- NOX Control — portal público de promotores
+-- NOOX Control — portal público de promotores
 -- Compatible con MySQL 8.0+ y phpMyAdmin.
 -- Puede ejecutarse más de una vez y no cambia códigos QR existentes.
 

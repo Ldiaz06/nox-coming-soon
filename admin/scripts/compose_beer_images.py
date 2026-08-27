@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compose un recorte fotográfico real sobre el fondo de producto de NOX.
+"""Compose un recorte fotográfico real sobre el fondo de producto de NOOX.
 
 El script no redibuja ni modifica etiquetas: elimina únicamente el fondo de
 la fotografía fuente, conserva el componente principal y añade sombra/escala.

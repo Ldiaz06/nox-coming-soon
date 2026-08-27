@@ -1,4 +1,4 @@
--- NOX Control — migración independiente de listas de invitados
+-- NOOX Control — migración independiente de listas de invitados
 -- Compatible con MySQL 8.0+ y phpMyAdmin.
 --
 -- Use este archivo cuando eventos e invitados ya existen. Agrega sublistas

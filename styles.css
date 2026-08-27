@@ -43,6 +43,7 @@ body { color:var(--cream); font-family:Montserrat,system-ui,sans-serif; overflow
 .location-summary address { display:flex; flex-direction:column; gap:.12rem; font-style:normal; text-align:left; }
 .location-summary small { color:#6f685d; font-size:.43rem; letter-spacing:.22em; text-transform:uppercase; }
 .location-summary strong { color:var(--gold-light); font-family:Cinzel,serif; font-size:.65rem; font-weight:400; letter-spacing:.18em; text-transform:uppercase; }
+.brand-search-alias { color:#777064; font-size:.48rem; letter-spacing:.06em; }
 .location-actions { display:flex; justify-content:center; gap:.65rem; margin:.85rem 0; }
 .location-actions a { min-width:8.8rem; display:inline-flex; align-items:center; justify-content:center; gap:.5rem; padding:.68rem .85rem; border:1px solid rgba(214,182,96,.25); color:var(--gold-light); font-size:.5rem; letter-spacing:.13em; text-decoration:none; text-transform:uppercase; transition:border-color .25s,background .25s,transform .25s; }
 .location-actions a:hover,.location-actions a:focus-visible { border-color:var(--gold); background:rgba(214,182,96,.07); transform:translateY(-2px); }

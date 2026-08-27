@@ -1,6 +1,6 @@
-# NOX Control — despliegue en CentOS/cPanel
+# NOOX Control — despliegue en CentOS/cPanel
 
-Aplicación privada de administración para NOX Panamá. Funciona con PHP 7.4.32 o superior, Apache 2.4 y MySQL 8.0+. No usa Node.js, npm ni Composer.
+Aplicación privada de administración para NOOX Panamá. Funciona con PHP 7.4.32 o superior, Apache 2.4 y MySQL 8.0+. No usa Node.js, npm ni Composer.
 
 La carpeta pública del sitio principal es:
 
@@ -600,8 +600,8 @@ El instalador único también:
 - convierte empleados mensuales a modalidad quincenal conservando o calculando su tarifa por hora;
 - crea una caja individual para cada usuario activo existente.
 
-No es necesario importar por separado los archivos históricos de
-Después de actualizar una instalación antigua, el usuario anterior sigue siendo
+No es necesario importar por separado los archivos históricos de migración al
+usar el instalador único. Después de actualizar una instalación antigua, el usuario anterior sigue siendo
 el mismo texto que se utilizaba como correo. Inicie sesión con ese valor y use
 **Usuarios > Editar** para cambiarlo, por ejemplo, a `admin`.
 

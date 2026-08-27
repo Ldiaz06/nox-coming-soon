@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#080806">
   <meta name="robots" content="noindex,nofollow,noarchive">
-  <title>NOX Control — Administración</title>
+  <title>NOOX Control — Administración</title>
   <link rel="icon" href="/favicon.svg?v=20260806-1" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css?v=20260805-13">
 </head>
@@ -14,14 +14,14 @@
 
   <section id="login-view" class="login-shell" aria-labelledby="login-title">
     <div class="login-panel">
-      <div class="brand-lockup" aria-label="NOX Control">
+      <div class="brand-lockup" aria-label="NOOX Control">
         <span>THE CELESTIAL ECLIPSE</span>
-        <strong>NOX</strong>
+        <strong>NOOX</strong>
         <small>CONTROL</small>
       </div>
       <div>
         <p class="eyebrow">ACCESO PRIVADO</p>
-        <h1 id="login-title">Administración de NOX</h1>
+        <h1 id="login-title">Administración de NOOX</h1>
         <p class="muted">Ventas, inventario, cierres y equipo en un solo lugar.</p>
       </div>
       <form id="login-form" class="form-stack">
@@ -35,7 +35,7 @@
 
   <div id="app-view" class="app-shell" hidden>
     <aside class="sidebar" aria-label="Navegación principal">
-      <div class="sidebar-brand"><strong>NOX</strong><span>CONTROL</span></div>
+      <div class="sidebar-brand"><strong>NOOX</strong><span>CONTROL</span></div>
       <nav id="main-nav">
         <button data-section="dashboard"><span>◇</span>Resumen</button>
         <button data-section="pos"><span>▦</span>POS</button>
@@ -59,7 +59,7 @@
 
     <header class="topbar">
       <button id="menu-button" class="icon-button" aria-label="Abrir menú" aria-expanded="false">☰</button>
-      <div><p class="eyebrow">NOX PANAMÁ</p><h1 id="section-title">Resumen</h1></div>
+      <div><p class="eyebrow">NOOX PANAMÁ</p><h1 id="section-title">Resumen</h1></div>
       <div class="live-status"><span></span><span>Sistema activo</span></div>
     </header>
 
@@ -75,7 +75,7 @@
 
       <section id="section-pos" class="page-section" hidden>
         <header class="pos-commandbar">
-          <div class="pos-brand"><strong>NOX</strong><span>PUNTO DE VENTA</span></div>
+          <div class="pos-brand"><strong>NOOX</strong><span>PUNTO DE VENTA</span></div>
           <div class="pos-operator"><span id="pos-user-name"></span><span id="pos-session-label" class="status-pill">Caja cerrada</span></div>
           <div class="pos-actions"><button id="pos-cash-button" class="button button--ghost">Mi caja</button><button id="exit-pos" class="button button--ghost">← Administración</button></div>
         </header>
@@ -335,7 +335,7 @@
           <label id="product-new-category-field" hidden>Nueva categoría<input name="categoryNew" maxlength="100" placeholder="Escriba la nueva categoría"></label>
           <label>Código de barras<input name="barcode" maxlength="120"></label><label>Precio de venta<input name="salePrice" type="number" min="0" step="0.01" required></label><label>Margen bruto objetivo (%)<input name="targetMargin" type="number" min="10" max="95" step="0.1" value="70" required><small class="field-hint">Porcentaje del precio que debe quedar después del costo de ingredientes.</small></label><label>Impuesto (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="0"></label>
           <label>Estado<select name="active"><option value="1">Activo en el POS</option><option value="0">Inactivo</option></select></label>
-          <label class="product-photo-field">Foto del producto (opcional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp"><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Si no selecciona una, se utilizará la imagen predeterminada de NOX.</small></label>
+          <label class="product-photo-field">Foto del producto (opcional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp"><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Si no selecciona una, se utilizará la imagen predeterminada de NOOX.</small></label>
           <div id="product-image-preview" class="image-preview" hidden><img alt="Vista previa del producto"></div>
           <div class="wide-field"><div class="recipe-heading"><div><span>Artículos que componen este producto</span><small>Cantidades descontadas por cada unidad vendida.</small></div><button id="add-recipe-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="recipe-rows" class="recipe-rows"></div></div>
           <div id="product-pricing-preview" class="pricing-preview wide-field" role="status" aria-live="polite"></div>
@@ -435,7 +435,7 @@
   </dialog>
   <dialog id="event-qr-dialog" class="qr-dialog">
     <form method="dialog" class="dialog-form">
-      <div><p class="eyebrow">ACCESO NOX</p><h2 id="qr-dialog-title">Código QR</h2><p id="qr-dialog-subtitle" class="muted"></p></div>
+      <div><p class="eyebrow">ACCESO NOOX</p><h2 id="qr-dialog-title">Código QR</h2><p id="qr-dialog-subtitle" class="muted"></p></div>
       <div id="qr-code" class="qr-code" aria-label="Código QR de acceso"></div>
       <p class="qr-help">Presente este código al personal de la entrada. No lo recorte ni lo cubra.</p>
       <div id="qr-public-link" class="qr-public-link" hidden>

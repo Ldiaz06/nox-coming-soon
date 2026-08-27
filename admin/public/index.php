@@ -14,7 +14,7 @@ if (PHP_VERSION_ID < 70400) {
     http_response_code(503);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
-        'error' => 'NOX Control requiere PHP 7.4 o superior.',
+        'error' => 'NOOX Control requiere PHP 7.4 o superior.',
         'currentVersion' => PHP_VERSION,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
@@ -27,7 +27,7 @@ if (is_file($eventsAccessModule)) {
     try {
         require_once $eventsAccessModule;
     } catch (Throwable $error) {
-        error_log('NOX events module could not be loaded: ' . $error->__toString());
+        error_log('NOOX events module could not be loaded: ' . $error->__toString());
     }
 }
 $publicInvitationsModule = dirname(__DIR__) . '/app/public_invitations.php';
@@ -35,7 +35,7 @@ if (is_file($publicInvitationsModule)) {
     try {
         require_once $publicInvitationsModule;
     } catch (Throwable $error) {
-        error_log('NOX public invitations module could not be loaded: ' . $error->__toString());
+        error_log('NOOX public invitations module could not be loaded: ' . $error->__toString());
     }
 }
 $promoterPortalModule = dirname(__DIR__) . '/app/promoter_portal.php';
@@ -43,7 +43,7 @@ if (is_file($promoterPortalModule)) {
     try {
         require_once $promoterPortalModule;
     } catch (Throwable $error) {
-        error_log('NOX promoter portal module could not be loaded: ' . $error->__toString());
+        error_log('NOOX promoter portal module could not be loaded: ' . $error->__toString());
     }
 }
 require_once dirname(__DIR__) . '/app/inventory_pos.php';
