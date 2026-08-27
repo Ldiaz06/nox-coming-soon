@@ -42,6 +42,7 @@ const state = {
   activeTab: null,
   openTabs: [],
   tabMutation: Promise.resolve(),
+  tabContextVersion: 0,
   clockTimer: null,
   catalogReady: false,
   pagination: {
@@ -59,6 +60,7 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const dateTime = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Panama" });
 const dateOnly = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeZone: "America/Panama" });
 const roleNames = { admin: "Administrador", supervisor: "Supervisor", cashier: "Cajero" };
+const paymentMethodNames = { cash: "Efectivo", card: "Tarjeta", yappy: "Yappy" };
 const sectionNames = { dashboard: "Resumen", pos: "Punto de venta", events: "Eventos y accesos", inventory: "Inventario", articles: "Artículos", products: "Productos", insights: "Costos y reposición", cash: "Cajas", reports: "Reportes", workforce: "Personal", payroll: "Planilla", users: "Usuarios" };
 const unitNames = { unit: "unidad", bottle: "botella", can: "lata", ml: "ml", liter: "litro", fluid_ounce: "oz líquida", gram: "g", kg: "kg", portion: "porción", pack: "paquete", case: "caja", keg: "barril" };
 const quantityNumber = new Intl.NumberFormat("es-PA", { maximumFractionDigits: 4 });
@@ -1155,9 +1157,13 @@ async function loadPos() {
   $("#pos-session-label").className = `status-pill ${open ? "badge--success" : "badge--danger"}`;
   await loadPosCatalog();
   if (state.activeTab && !state.openTabs.some((tab) => Number(tab.id) === Number(state.activeTab.id))) {
+    state.tabContextVersion += 1;
     state.posMode = null;
     state.activeTab = null;
     state.cart.clear();
+    resetPosPayment();
+  } else if (state.posMode === "tab" && state.activeTab) {
+    await selectTab(state.activeTab.id);
   }
   renderAccountMode();
   renderCart();
@@ -1187,6 +1193,7 @@ function renderAccountMode() {
   $("#product-search").disabled = !selected;
   $("#product-category").disabled = !selected;
   $("#clear-cart").disabled = !selected;
+  $("#void-account").hidden = state.posMode !== "tab";
   $("#complete-sale").textContent = state.posMode === "tab" ? "Cobrar cuenta" : state.posMode === "quick" ? "Cobrar venta rápida" : "Seleccione una cuenta";
   renderProducts();
   if (selected) renderPagination("pos-pagination", "pos");
@@ -1194,32 +1201,44 @@ function renderAccountMode() {
 }
 
 function selectQuickSale() {
+  state.tabContextVersion += 1;
   state.posMode = "quick";
   state.activeTab = null;
   state.cart.clear();
   $("#pos-message").textContent = "";
+  resetPosPayment();
   renderAccountMode();
 }
 
 async function selectTab(tabId) {
   const { tab } = await api(`/api/pos/tabs/${tabId}`);
+  state.tabContextVersion += 1;
   state.posMode = "tab";
   state.activeTab = { id: Number(tab.id), customerName: tab.customerName };
   state.cart.clear();
+  const tabProducts = new Map();
   tab.items.forEach((item) => {
     const productId = Number(item.id);
+    tabProducts.set(productId, item);
     state.productCache.set(productId, item);
     state.cart.set(productId, Number(item.quantity));
   });
+  state.products = state.products.map((product) => {
+    const tabProduct = tabProducts.get(Number(product.id));
+    return tabProduct ? { ...product, available: tabProduct.available } : product;
+  });
   $("#pos-message").textContent = "";
+  resetPosPayment();
   renderAccountMode();
 }
 
 async function changeAccount() {
   await state.tabMutation.catch(() => null);
+  state.tabContextVersion += 1;
   state.posMode = null;
   state.activeTab = null;
   state.cart.clear();
+  resetPosPayment();
   await Promise.all([loadPosTabs(), loadPosCatalog()]);
   renderAccountMode();
 }
@@ -1286,12 +1305,15 @@ function setCartQuantity(productId, quantity) {
   renderCart();
   if (state.posMode !== "tab" || !state.activeTab) return;
   const tabId = state.activeTab.id;
+  const contextVersion = state.tabContextVersion;
   state.tabMutation = state.tabMutation.then(async () => {
+    if (contextVersion !== state.tabContextVersion || state.posMode !== "tab" || state.activeTab?.id !== tabId) return;
     await api(`/api/pos/tabs/${tabId}/items`, {
       method: "POST",
       body: JSON.stringify({ productId, quantity })
     });
   }).catch(async (error) => {
+    if (contextVersion !== state.tabContextVersion) return;
     if (previous <= 0) state.cart.delete(productId);
     else state.cart.set(productId, previous);
     renderCart();
@@ -1300,16 +1322,89 @@ function setCartQuantity(productId, quantity) {
   });
 }
 
+function roundPosMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
 function cartTotals() {
   let subtotal = 0;
   let tax = 0;
   for (const [productId, quantity] of state.cart) {
     const product = state.productCache.get(productId);
     if (!product) continue;
-    subtotal += Number(product.salePrice) * quantity;
-    tax += Number(product.salePrice) * quantity * Number(product.taxRate);
+    const lineSubtotal = roundPosMoney(Number(product.salePrice) * quantity);
+    const lineTax = roundPosMoney(lineSubtotal * Number(product.taxRate));
+    subtotal = roundPosMoney(subtotal + lineSubtotal);
+    tax = roundPosMoney(tax + lineTax);
   }
-  return { subtotal, tax, total: subtotal + tax };
+  const maximumDiscount = roundPosMoney(subtotal + tax);
+  const requestedDiscount = Math.max(0, Number($("#pos-discount")?.value || 0));
+  const discount = Math.min(roundPosMoney(requestedDiscount), maximumDiscount);
+  return { subtotal, tax, discount, total: roundPosMoney(maximumDiscount - discount) };
+}
+
+function splitPaymentRows() {
+  return $$(".split-payment-row", $("#split-payment-rows"));
+}
+
+function addSplitPaymentRow() {
+  const used = new Set([$("#payment-method").value, ...splitPaymentRows().map((row) => row.querySelector("select").value)]);
+  const method = ["cash", "card", "yappy"].find((candidate) => !used.has(candidate));
+  if (!method) return toast("Ya están incluidos todos los métodos de pago.", true);
+  const row = document.createElement("div");
+  row.className = "split-payment-row";
+  row.innerHTML = `<select aria-label="Método de pago adicional">${Object.entries(paymentMethodNames).map(([value, label]) => `<option value="${value}"${value === method ? " selected" : ""}>${label}</option>`).join("")}</select><input type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Monto" aria-label="Monto del pago adicional"><input class="split-payment-reference" maxlength="120" placeholder="Referencia" aria-label="Referencia del pago adicional"><button type="button" class="text-button" data-remove-split-payment aria-label="Quitar pago">×</button>`;
+  $("#split-payment-rows").append(row);
+  updatePosPaymentSummary();
+}
+
+function posPaymentAllocations(totals, validate = false) {
+  const extras = splitPaymentRows().map((row) => ({
+    method: row.querySelector("select").value,
+    amount: roundPosMoney(Number(row.querySelector('input[type="number"]').value || 0)),
+    reference: row.querySelector(".split-payment-reference").value.trim() || null
+  }));
+  const used = [$("#payment-method").value, ...extras.map((payment) => payment.method)];
+  if (validate && new Set(used).size !== used.length) throw new Error("No repita un método de pago.");
+  if (validate && extras.some((payment) => payment.amount <= 0)) throw new Error("Complete los montos de los pagos divididos.");
+  const extraTotal = roundPosMoney(extras.reduce((sum, payment) => sum + payment.amount, 0));
+  const primaryAmount = roundPosMoney(totals.total - extraTotal);
+  if (validate && primaryAmount <= 0) throw new Error("Los pagos adicionales superan o igualan el total.");
+  const primary = {
+    method: $("#payment-method").value,
+    amount: Math.max(0, primaryAmount),
+    reference: $("#payment-reference").value.trim() || null
+  };
+  return [primary, ...extras];
+}
+
+function updatePosPaymentSummary() {
+  const totals = cartTotals();
+  const payments = posPaymentAllocations(totals);
+  const primary = payments[0];
+  $("#primary-payment-summary").textContent = `${paymentMethodNames[primary.method]}: ${money.format(primary.amount)}`;
+  const cashPrimary = primary.method === "cash";
+  $("#cash-received-wrap").hidden = !cashPrimary;
+  const received = Number($("#cash-received").value || primary.amount);
+  const change = cashPrimary ? Math.max(0, roundPosMoney(received - primary.amount)) : 0;
+  $("#cash-change").textContent = money.format(change);
+  splitPaymentRows().forEach((row) => {
+    row.querySelector(".split-payment-reference").hidden = row.querySelector("select").value === "cash";
+  });
+  $("#add-split-payment").disabled = splitPaymentRows().length >= 2;
+}
+
+function resetPosPayment() {
+  const discount = $("#pos-discount");
+  if (!discount) return;
+  discount.value = "0";
+  $("#payment-method").value = "cash";
+  $("#payment-reference").value = "";
+  $("#payment-reference-wrap").hidden = true;
+  $("#cash-received").value = "";
+  $("#split-payment-rows").replaceChildren();
+  $$("[data-payment-method]", $("#payment-methods")).forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.paymentMethod === "cash")));
+  updatePosPaymentSummary();
 }
 
 function renderCart() {
@@ -1322,9 +1417,12 @@ function renderCart() {
   const totals = cartTotals();
   $("#cart-subtotal").textContent = money.format(totals.subtotal);
   $("#cart-tax").textContent = money.format(totals.tax);
+  $("#cart-discount").textContent = `−${money.format(totals.discount)}`;
+  $("#cart-discount-row").hidden = totals.discount <= 0;
   $("#cart-total").textContent = money.format(totals.total);
+  updatePosPaymentSummary();
   const open = ownOpenSession();
-  $("#complete-sale").disabled = !state.posMode || !lines.length || !open;
+  $("#complete-sale").disabled = !state.posMode || !lines.length || !open || totals.total <= 0;
 }
 
 async function completeSale() {
@@ -1333,7 +1431,18 @@ async function completeSale() {
   const open = ownOpenSession();
   if (!open) return toast("Debe abrir una caja antes de vender.", true);
   const totals = cartTotals();
-  const method = $("#payment-method").value;
+  if (totals.total <= 0) return toast("El total debe ser mayor que cero.", true);
+  let payments;
+  try {
+    payments = posPaymentAllocations(totals, true);
+  } catch (error) {
+    return toast(error.message, true);
+  }
+  const primary = payments[0];
+  const received = primary.method === "cash" ? Number($("#cash-received").value || primary.amount) : primary.amount;
+  if (primary.method === "cash" && received + 0.0001 < primary.amount) return toast("El efectivo recibido no cubre el monto pendiente.", true);
+  const change = primary.method === "cash" ? roundPosMoney(received - primary.amount) : 0;
+  const receiptLines = [...state.cart].map(([productId, quantity]) => ({ product: state.productCache.get(productId), quantity }));
   $("#complete-sale").disabled = true;
   try {
     const sale = await api("/api/pos/sales", {
@@ -1341,16 +1450,18 @@ async function completeSale() {
       body: JSON.stringify({
         cashSessionId: open.id,
         tabId: state.posMode === "tab" ? state.activeTab?.id : null,
-        discount: 0,
+        discount: totals.discount,
         items: [...state.cart].map(([productId, quantity]) => ({ productId, quantity })),
-        payments: [{ method, amount: Number(totals.total.toFixed(2)), reference: $("#payment-reference").value || null }]
+        payments
       })
     });
     state.cart.clear();
     state.posMode = null;
     state.activeTab = null;
-    $("#payment-reference").value = "";
+    state.tabContextVersion += 1;
     $("#pos-message").textContent = `${sale.receipt} · ${money.format(sale.total)}`;
+    showPosReceipt(sale, receiptLines, payments, change, received);
+    resetPosPayment();
     toast("Venta completada e inventario actualizado.");
     await loadPos();
   } catch (error) {
@@ -1358,6 +1469,52 @@ async function completeSale() {
     toast(error.message, true);
     renderCart();
   }
+}
+
+function showPosReceipt(sale, lines, payments, change, received) {
+  const paymentRows = payments.map((payment, index) => {
+    const detail = payment.method === "cash" && index === 0 && received > payment.amount
+      ? ` · Recibido ${money.format(received)}`
+      : payment.reference ? ` · Ref. ${escapeHtml(payment.reference)}` : "";
+    return `<div><span>${escapeHtml(paymentMethodNames[payment.method] || payment.method)}${detail}</span><strong>${money.format(payment.amount)}</strong></div>`;
+  }).join("");
+  $("#pos-receipt").innerHTML = `
+    <header><p>NOOX PANAMÁ</p><h2>Recibo ${escapeHtml(sale.receipt)}</h2><small>${dateTime.format(new Date())}</small></header>
+    <section>${lines.map(({ product, quantity }) => `<div><span>${quantityNumber.format(quantity)} × ${escapeHtml(product?.name || "Producto")}</span><strong>${money.format(roundPosMoney(Number(product?.salePrice || 0) * quantity))}</strong></div>`).join("")}</section>
+    <section class="pos-receipt-totals"><div><span>Subtotal</span><strong>${money.format(sale.subtotal)}</strong></div><div><span>Impuesto</span><strong>${money.format(sale.tax)}</strong></div>${Number(sale.discount) > 0 ? `<div><span>Descuento</span><strong>−${money.format(sale.discount)}</strong></div>` : ""}<div class="pos-receipt-total"><span>Total</span><strong>${money.format(sale.total)}</strong></div></section>
+    <section>${paymentRows}${change > 0 ? `<div><span>Cambio</span><strong>${money.format(change)}</strong></div>` : ""}</section>
+    <footer>The Night Must Go On</footer>`;
+  $("#pos-receipt-dialog").showModal();
+}
+
+function paymentSummaryHtml(value) {
+  if (!value) return "Sin detalle";
+  return String(value).split("|").map((entry) => {
+    const separator = entry.indexOf(":");
+    const method = separator >= 0 ? entry.slice(0, separator) : entry;
+    const amount = separator >= 0 ? Number(entry.slice(separator + 1)) : 0;
+    return `${escapeHtml(paymentMethodNames[method] || method)} ${money.format(amount)}`;
+  }).join(" + ");
+}
+
+async function loadPosSales() {
+  const { sales } = await api("/api/pos/sales?limit=50");
+  const canVoid = ["admin", "supervisor"].includes(state.user.role);
+  $("#pos-sales-table").innerHTML = sales.map((sale) => {
+    const action = canVoid && sale.status === "completed" && sale.cashSessionStatus === "open"
+      ? `<button type="button" class="table-action table-action--danger" data-void-sale="${sale.id}">Anular</button>`
+      : "";
+    return `<tr><td><strong>${escapeHtml(sale.receipt)}</strong>${sale.voidReason ? `<small>${escapeHtml(sale.voidReason)}</small>` : ""}</td><td>${dateTime.format(new Date(sale.createdAt))}</td><td>${escapeHtml(sale.cashier)}</td><td>${paymentSummaryHtml(sale.paymentSummary)}</td><td><strong>${money.format(sale.total)}</strong></td><td><span class="badge ${sale.status === "completed" ? "badge--success" : "badge--danger"}">${sale.status === "completed" ? "Completada" : "Anulada"}</span></td><td>${action}</td></tr>`;
+  }).join("") || '<tr><td colspan="7">No hay ventas registradas.</td></tr>';
+}
+
+async function voidPosSale(saleId) {
+  const reason = window.prompt("Motivo de la anulación (mínimo 4 caracteres):", "");
+  if (reason === null) return;
+  if (reason.trim().length < 4) return toast("Escriba un motivo de al menos 4 caracteres.", true);
+  await api(`/api/pos/sales/${saleId}/void`, { method: "POST", body: JSON.stringify({ reason: reason.trim() }) });
+  toast("Venta anulada e inventario restaurado.");
+  await Promise.all([loadPosSales(), loadPos()]);
 }
 
 async function loadInventory() {
@@ -1934,6 +2091,10 @@ $("#main-nav").addEventListener("click", (event) => { const button = event.targe
 $("#menu-button").addEventListener("click", () => { const sidebar = $(".sidebar"); sidebar.classList.toggle("is-open"); $("#menu-button").setAttribute("aria-expanded", String(sidebar.classList.contains("is-open"))); });
 $("#exit-pos").addEventListener("click", () => navigate("dashboard"));
 $("#pos-cash-button").addEventListener("click", () => navigate("cash"));
+$("#pos-sales-button").addEventListener("click", async () => {
+  try { await loadPosSales(); $("#pos-sales-dialog").showModal(); }
+  catch (error) { toast(error.message, true); }
+});
 $$('[data-refresh]').forEach((button) => button.addEventListener("click", () => navigate(button.dataset.refresh)));
 
 $("#quick-sale-mode").addEventListener("click", selectQuickSale);
@@ -1954,6 +2115,18 @@ $("#open-tabs").addEventListener("click", (event) => {
   if (button) selectTab(Number(button.dataset.tabId)).catch((error) => toast(error.message, true));
 });
 $("#change-account").addEventListener("click", () => changeAccount().catch((error) => toast(error.message, true)));
+$("#void-account").addEventListener("click", async () => {
+  if (state.posMode !== "tab" || !state.activeTab) return;
+  const reason = window.prompt(`Motivo para cancelar la cuenta de ${state.activeTab.customerName}:`, "");
+  if (reason === null) return;
+  if (reason.trim().length < 4) return toast("Escriba un motivo de al menos 4 caracteres.", true);
+  try {
+    await state.tabMutation.catch(() => null);
+    await api(`/api/pos/tabs/${state.activeTab.id}/void`, { method: "POST", body: JSON.stringify({ reason: reason.trim() }) });
+    toast("Cuenta cancelada y reservas liberadas.");
+    await changeAccount();
+  } catch (error) { toast(error.message, true); }
+});
 
 $("#product-search").addEventListener("input", debounce(() => {
   state.pagination.pos.page = 1;
@@ -1986,6 +2159,17 @@ $("#clear-cart").addEventListener("click", async () => {
   renderCart();
 });
 $("#complete-sale").addEventListener("click", completeSale);
+$("#pos-discount").addEventListener("input", renderCart);
+$("#cash-received").addEventListener("input", updatePosPaymentSummary);
+$("#add-split-payment").addEventListener("click", addSplitPaymentRow);
+$("#split-payment-rows").addEventListener("input", updatePosPaymentSummary);
+$("#split-payment-rows").addEventListener("change", updatePosPaymentSummary);
+$("#split-payment-rows").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-split-payment]");
+  if (!button) return;
+  button.closest(".split-payment-row").remove();
+  updatePosPaymentSummary();
+});
 $("#payment-methods").addEventListener("click", (event) => {
   const button = event.target.closest("[data-payment-method]");
   if (!button) return;
@@ -1994,7 +2178,13 @@ $("#payment-methods").addEventListener("click", (event) => {
   $$("[data-payment-method]", $("#payment-methods")).forEach((option) => option.setAttribute("aria-pressed", String(option === button)));
   $("#payment-reference-wrap").hidden = method === "cash";
   if (method === "cash") $("#payment-reference").value = "";
+  updatePosPaymentSummary();
 });
+$("#pos-sales-table").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-void-sale]");
+  if (button) voidPosSale(Number(button.dataset.voidSale)).catch((error) => toast(error.message, true));
+});
+$("#print-pos-receipt").addEventListener("click", () => window.print());
 
 $("#show-new-item").addEventListener("click", () => prepareItemForm());
 $("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); prepareProductForm(); });

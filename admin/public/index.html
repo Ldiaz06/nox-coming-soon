@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOOX Control — Administración</title>
   <link rel="icon" href="/favicon.svg?v=20260806-1" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=20260805-13">
+  <link rel="stylesheet" href="/styles.css?v=20260827-1">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -77,7 +77,7 @@
         <header class="pos-commandbar">
           <div class="pos-brand"><strong>NOOX</strong><span>PUNTO DE VENTA</span></div>
           <div class="pos-operator"><span id="pos-user-name"></span><span id="pos-session-label" class="status-pill">Caja cerrada</span></div>
-          <div class="pos-actions"><button id="pos-cash-button" class="button button--ghost">Mi caja</button><button id="exit-pos" class="button button--ghost">← Administración</button></div>
+          <div class="pos-actions"><button id="pos-sales-button" class="button button--ghost">Ventas</button><button id="pos-cash-button" class="button button--ghost">Mi caja</button><button id="exit-pos" class="button button--ghost">← Administración</button></div>
         </header>
         <section id="pos-account-selector" class="pos-account-selector" aria-labelledby="pos-account-title">
           <div class="account-selector-copy"><p class="eyebrow">PASO 1</p><h2 id="pos-account-title">Seleccione una cuenta</h2><p>Elija un cliente existente, abra una cuenta nueva o cobre una venta rápida al instante.</p></div>
@@ -92,7 +92,7 @@
         </section>
         <div id="active-account-bar" class="active-account-bar" hidden>
           <div><span>Cuenta seleccionada</span><strong id="active-account-name"></strong></div>
-          <button id="change-account" type="button" class="button button--ghost">Cambiar cuenta</button>
+          <div class="active-account-actions"><button id="void-account" type="button" class="button button--danger">Cancelar cuenta</button><button id="change-account" type="button" class="button button--ghost">Cambiar cuenta</button></div>
         </div>
         <div class="pos-layout">
           <div class="panel catalog-panel">
@@ -103,7 +103,8 @@
           <aside class="panel cart-panel">
             <div class="panel-heading"><div><h3>Orden actual</h3><small id="current-order-account">Seleccione una cuenta</small></div><button id="clear-cart" class="text-button">Limpiar</button></div>
             <div id="cart-lines" class="cart-lines"></div>
-            <div class="cart-totals"><div><span>Subtotal</span><strong id="cart-subtotal">0.00</strong></div><div><span>Impuesto</span><strong id="cart-tax">0.00</strong></div><div class="cart-total"><span>Total</span><strong id="cart-total">0.00</strong></div></div>
+            <div class="cart-totals"><div><span>Subtotal</span><strong id="cart-subtotal">0.00</strong></div><div><span>Impuesto</span><strong id="cart-tax">0.00</strong></div><div id="cart-discount-row" hidden><span>Descuento</span><strong id="cart-discount">0.00</strong></div><div class="cart-total"><span>Total</span><strong id="cart-total">0.00</strong></div></div>
+            <label class="pos-discount-field">Descuento<input id="pos-discount" type="number" min="0" max="100000" step="0.01" value="0" inputmode="decimal"></label>
             <div id="payment-methods" class="payment-methods" role="group" aria-label="Método de pago">
               <button type="button" data-payment-method="cash" aria-pressed="true"><span aria-hidden="true">💵</span>Efectivo</button>
               <button type="button" data-payment-method="card" aria-pressed="false"><span aria-hidden="true">💳</span>Tarjeta</button>
@@ -111,6 +112,13 @@
             </div>
             <input id="payment-method" type="hidden" value="cash">
             <label id="payment-reference-wrap" hidden>Referencia<input id="payment-reference" maxlength="120"></label>
+            <p id="primary-payment-summary" class="primary-payment-summary">Efectivo: $0.00</p>
+            <div id="split-payment-rows" class="split-payment-rows"></div>
+            <button id="add-split-payment" type="button" class="text-button split-payment-button">+ Dividir pago</button>
+            <div id="cash-received-wrap" class="cash-received-wrap">
+              <label>Efectivo recibido<input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Monto entregado"></label>
+              <div><span>Cambio</span><strong id="cash-change">$0.00</strong></div>
+            </div>
             <button id="complete-sale" class="button button--primary" disabled>Cobrar</button>
             <p id="pos-message" class="form-message" role="status"></p>
           </aside>
@@ -416,6 +424,19 @@
 
   <dialog id="adjust-dialog"><form method="dialog" id="adjust-form" class="dialog-form"><div><p class="eyebrow">INVENTARIO</p><h2>Ajustar existencia</h2><p id="adjust-item-name" class="muted"></p></div><input name="itemId" type="hidden"><label>Movimiento<select name="type"><option value="adjustment">Ajuste (+/-)</option><option value="waste">Merma</option><option value="count">Conteo físico</option></select></label><label>Cantidad<input name="quantity" type="number" step="0.001" required></label><label>Nota<input name="notes" maxlength="500"></label><div class="form-actions"><button class="button button--primary" value="submit">Guardar</button><button class="button button--ghost" value="cancel">Cancelar</button></div></form></dialog>
   <dialog id="close-dialog"><form method="dialog" id="close-form" class="dialog-form"><div><p class="eyebrow">CIERRE</p><h2>Cerrar caja</h2></div><input name="sessionId" type="hidden"><label>Efectivo contado<input name="countedCash" type="number" min="0" step="0.01" required></label><label>Notas<input name="notes" maxlength="500"></label><div class="form-actions"><button class="button button--primary" value="submit">Cerrar caja</button><button class="button button--ghost" value="cancel">Cancelar</button></div></form></dialog>
+  <dialog id="pos-sales-dialog" class="pos-sales-dialog">
+    <form method="dialog" class="dialog-form dialog-form--wide">
+      <div><p class="eyebrow">PUNTO DE VENTA</p><h2>Ventas recientes</h2><p class="muted">Las ventas solo pueden anularse antes del cierre de su caja.</p></div>
+      <div class="table-scroll"><table><thead><tr><th>Recibo</th><th>Fecha</th><th>Cajero</th><th>Pagos</th><th>Total</th><th>Estado</th><th></th></tr></thead><tbody id="pos-sales-table"></tbody></table></div>
+      <div class="form-actions"><button class="button button--ghost" value="cancel">Cerrar</button></div>
+    </form>
+  </dialog>
+  <dialog id="pos-receipt-dialog" class="pos-receipt-dialog">
+    <form method="dialog" class="dialog-form">
+      <div id="pos-receipt" class="pos-receipt" aria-label="Recibo de venta"></div>
+      <div class="form-actions"><button id="print-pos-receipt" class="button button--primary" type="button">Imprimir</button><button class="button button--ghost" value="cancel">Cerrar</button></div>
+    </form>
+  </dialog>
   <dialog id="product-image-dialog">
     <form method="dialog" id="product-image-form" class="dialog-form">
       <div><p class="eyebrow">CATÁLOGO DEL POS</p><h2>Foto del producto</h2><p id="product-image-name" class="muted"></p></div>
@@ -522,6 +543,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260806-27" defer></script>
+  <script src="/app.js?v=20260827-1" defer></script>
 </body>
 </html>

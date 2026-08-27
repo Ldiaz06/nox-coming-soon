@@ -10,6 +10,32 @@ function suggested_product_price(float $recipeCost, float $targetMargin): float
     return money_round(ceil(($recipeCost / (1 - $margin)) * 4) / 4);
 }
 
+function pos_allocate_discount(array $lineTotals, float $discount): array
+{
+    $lineTotals = array_map(static fn ($value): float => money_round((float) $value), array_values($lineTotals));
+    $grossTotal = money_round(array_sum($lineTotals));
+    $discount = money_round($discount);
+    if ($discount <= 0) return $lineTotals;
+    if ($grossTotal <= 0 || $discount >= $grossTotal) {
+        throw new ApiError('El descuento debe ser menor que el total de la venta.');
+    }
+    $remainingDiscount = $discount;
+    $remainingGross = $grossTotal;
+    $lastIndex = count($lineTotals) - 1;
+    foreach ($lineTotals as $index => $lineTotal) {
+        $lineDiscount = $index === $lastIndex
+            ? $remainingDiscount
+            : ($remainingDiscount <= 0 || $remainingGross <= 0
+                ? 0
+                : money_round($remainingDiscount * ($lineTotal / $remainingGross)));
+        $lineDiscount = max(0, min($lineDiscount, $lineTotal, $remainingDiscount));
+        $lineTotals[$index] = money_round($lineTotal - $lineDiscount);
+        $remainingDiscount = money_round($remainingDiscount - $lineDiscount);
+        $remainingGross = money_round($remainingGross - $lineTotal);
+    }
+    return $lineTotals;
+}
+
 function catalog_search(): string
 {
     return trim(substr((string) ($_GET['search'] ?? ''), 0, 120));
@@ -1052,7 +1078,7 @@ function pos_products(array $params = [])
     }
     unset($row);
     $categories = db()->query(
-        'SELECT DISTINCT category FROM products WHERE active = TRUE ORDER BY category'
+        'SELECT DISTINCT category FROM products WHERE active = TRUE AND deleted_at IS NULL ORDER BY category'
     )->fetchAll(PDO::FETCH_COLUMN);
     json_response(['products' => $rows, 'categories' => $categories, 'pagination' => $pagination]);
 }
@@ -1063,7 +1089,10 @@ function pos_tabs(array $params = [])
     $statement = db()->query(
         "SELECT t.id, t.customer_name AS customerName, t.opened_at AS openedAt, t.updated_at AS updatedAt,
                 u.full_name AS openedBy, COALESCE(SUM(i.quantity), 0) AS itemCount,
-                COALESCE(SUM(i.quantity * i.unit_price * (1 + p.tax_rate)), 0) AS total
+                COALESCE(SUM(
+                    ROUND(i.quantity * i.unit_price, 2)
+                    + ROUND(ROUND(i.quantity * i.unit_price, 2) * p.tax_rate, 2)
+                ), 0) AS total
          FROM customer_tabs t
          JOIN users u ON u.id = t.opened_by
          LEFT JOIN customer_tab_items i ON i.tab_id = t.id
@@ -1135,14 +1164,14 @@ function pos_tab_detail(array $params)
 function pos_tab_item_set(array $params)
 {
     require_csrf();
-    require_auth();
+    $user = require_auth();
     $tabId = path_id($params);
     $body = request_body();
     $productId = value_id($body, 'productId');
     if (!isset($body['quantity']) || !is_numeric($body['quantity'])) throw new ApiError('La cantidad es obligatoria.');
     $quantity = (float) $body['quantity'];
     if ($quantity < 0 || $quantity > 100) throw new ApiError('La cantidad no es válida.');
-    transaction(function (PDO $pdo) use ($tabId, $productId, $quantity): void {
+    transaction(function (PDO $pdo) use ($user, $tabId, $productId, $quantity): void {
         $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
         $tab->execute([$tabId]);
         if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
@@ -1192,6 +1221,13 @@ function pos_tab_item_set(array $params)
             )->execute([$tabId, $productId, $quantity, $row['sale_price']]);
         }
         $pdo->prepare('UPDATE customer_tabs SET updated_at = NOW() WHERE id = ?')->execute([$tabId]);
+        audit_log($pdo, $user, 'set_item', 'customer_tab', $tabId, [
+            'productId' => $productId,
+            'quantity' => $currentQuantity,
+        ], [
+            'productId' => $productId,
+            'quantity' => $quantity,
+        ]);
     });
     no_content();
 }
@@ -1199,9 +1235,9 @@ function pos_tab_item_set(array $params)
 function pos_tab_clear(array $params)
 {
     require_csrf();
-    require_auth();
+    $user = require_auth();
     $tabId = path_id($params);
-    transaction(function (PDO $pdo) use ($tabId): void {
+    transaction(function (PDO $pdo) use ($user, $tabId): void {
         $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
         $tab->execute([$tabId]);
         if (!$tab->fetch()) throw new ApiError('La cuenta ya no está abierta.', 409);
@@ -1223,6 +1259,55 @@ function pos_tab_clear(array $params)
         }
         $pdo->prepare('DELETE FROM customer_tab_items WHERE tab_id = ?')->execute([$tabId]);
         $pdo->prepare('UPDATE customer_tabs SET updated_at = NOW() WHERE id = ?')->execute([$tabId]);
+        audit_log($pdo, $user, 'clear', 'customer_tab', $tabId);
+    });
+    no_content();
+}
+
+function pos_tab_void(array $params)
+{
+    require_csrf();
+    $user = require_auth();
+    $tabId = path_id($params);
+    $body = request_body();
+    $reason = value_string($body, 'reason', 4, 300) ?? '';
+    transaction(function (PDO $pdo) use ($user, $tabId, $reason): void {
+        $tab = $pdo->prepare(
+            "SELECT id, customer_name AS customerName
+             FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE"
+        );
+        $tab->execute([$tabId]);
+        $tabRow = $tab->fetch();
+        if (!$tabRow) throw new ApiError('La cuenta ya no está abierta.', 409);
+        $reservations = $pdo->prepare(
+            'SELECT r.inventory_item_id, SUM(r.quantity * i.quantity) AS quantity
+             FROM customer_tab_items i
+             JOIN product_recipes r ON r.product_id = i.product_id
+             WHERE i.tab_id = ?
+             GROUP BY r.inventory_item_id
+             ORDER BY r.inventory_item_id'
+        );
+        $reservations->execute([$tabId]);
+        foreach ($reservations->fetchAll() as $reservation) {
+            $pdo->prepare(
+                'UPDATE inventory_items
+                 SET reserved_stock = GREATEST(0, reserved_stock - ?)
+                 WHERE id = ?'
+            )->execute([$reservation['quantity'], $reservation['inventory_item_id']]);
+        }
+        $pdo->prepare('DELETE FROM customer_tab_items WHERE tab_id = ?')->execute([$tabId]);
+        $pdo->prepare(
+            "UPDATE customer_tabs
+             SET status = 'void', closed_at = NOW(), updated_at = NOW()
+             WHERE id = ?"
+        )->execute([$tabId]);
+        audit_log($pdo, $user, 'void', 'customer_tab', $tabId, [
+            'status' => 'open',
+            'customerName' => $tabRow['customerName'],
+        ], [
+            'status' => 'void',
+            'reason' => $reason,
+        ]);
     });
     no_content();
 }
@@ -1234,7 +1319,7 @@ function pos_sale_create(array $params = [])
     $body = request_body();
     $sessionId = value_id($body, 'cashSessionId');
     $tabId = isset($body['tabId']) && $body['tabId'] !== null ? value_id($body, 'tabId') : null;
-    $discount = isset($body['discount']) ? value_number($body, 'discount', 0) : 0;
+    $discount = isset($body['discount']) ? value_number($body, 'discount', 0, 100000) : 0;
     if (!is_array($body['items'] ?? null) || !$body['items'] || count($body['items']) > 100) {
         throw new ApiError('La venta debe contener productos.');
     }
@@ -1247,12 +1332,17 @@ function pos_sale_create(array $params = [])
         $productId = value_id($line, 'productId');
         $quantity = value_number($line, 'quantity', 0.001, 100);
         $requested[$productId] = ($requested[$productId] ?? 0) + $quantity;
+        if ($requested[$productId] > 100) throw new ApiError('La cantidad acumulada de un producto no puede superar 100.');
     }
     $payments = [];
+    $paymentMethods = [];
     foreach ($body['payments'] as $payment) {
         if (!is_array($payment)) throw new ApiError('Pago inválido.');
+        $method = require_choice($payment['method'] ?? '', ['cash', 'card', 'yappy'], 'method');
+        if (isset($paymentMethods[$method])) throw new ApiError('Cada método de pago solo puede utilizarse una vez.');
+        $paymentMethods[$method] = true;
         $payments[] = [
-            'method' => require_choice($payment['method'] ?? '', ['cash', 'card', 'yappy'], 'method'),
+            'method' => $method,
             'amount' => value_number($payment, 'amount', 0.01),
             'reference' => value_string($payment, 'reference', 0, 120, false),
         ];
@@ -1339,8 +1429,18 @@ function pos_sale_create(array $params = [])
         }
         if ($discount > $subtotal + $tax) throw new ApiError('El descuento supera el total.');
         $total = money_round($subtotal + $tax - $discount);
+        if ($total <= 0) throw new ApiError('El total de la venta debe ser mayor que cero.');
         $paymentTotal = money_round(array_reduce($payments, fn (float $sum, array $payment): float => $sum + $payment['amount'], 0.0));
         if (abs($paymentTotal - $total) > 0.009) throw new ApiError('Los pagos deben coincidir exactamente con el total.');
+
+        // Distribuir el descuento entre las líneas mantiene la suma de
+        // sale_items.line_total alineada con sales.total y evita inflar los
+        // reportes de productos cuando el POS aplica un descuento.
+        if ($discount > 0) {
+            $discountedTotals = pos_allocate_discount(array_column($calculated, 'total'), $discount);
+            foreach ($calculated as $index => &$line) $line['total'] = $discountedTotals[$index];
+            unset($line);
+        }
 
         $receipt = 'NOOX-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
         $sale = $pdo->prepare('INSERT INTO sales (receipt_number, cash_session_id, cashier_id, subtotal, tax, discount, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -1391,11 +1491,19 @@ function pos_sale_void(array $params)
     $body = request_body();
     $reason = value_string($body, 'reason', 4, 300) ?? '';
     transaction(function (PDO $pdo) use ($user, $saleId, $reason): void {
-        $statement = $pdo->prepare('SELECT id, status FROM sales WHERE id = ? FOR UPDATE');
+        $statement = $pdo->prepare(
+            'SELECT s.id, s.status, c.status AS cashSessionStatus
+             FROM sales s
+             JOIN cash_sessions c ON c.id = s.cash_session_id
+             WHERE s.id = ? FOR UPDATE'
+        );
         $statement->execute([$saleId]);
         $sale = $statement->fetch();
         if (!$sale) throw new ApiError('Venta no encontrada.', 404);
         if ($sale['status'] !== 'completed') throw new ApiError('La venta ya fue anulada.', 409);
+        if ($sale['cashSessionStatus'] !== 'open') {
+            throw new ApiError('No puede anular una venta después del cierre de caja. Registre una devolución controlada.', 409);
+        }
         $movements = $pdo->prepare(
             "SELECT inventory_item_id, quantity, unit_cost FROM inventory_movements
              WHERE reference_type = 'sale' AND reference_id = ? AND movement_type = 'sale' FOR UPDATE"
@@ -1421,8 +1529,15 @@ function pos_sales(array $params = [])
 {
     $user = require_auth();
     $limit = max(1, min((int) ($_GET['limit'] ?? 50), 200));
-    $sql = 'SELECT s.id, s.receipt_number AS receipt, s.total, s.status, s.created_at AS createdAt, u.full_name AS cashier
-            FROM sales s JOIN users u ON u.id = s.cashier_id ';
+    $sql = "SELECT s.id, s.receipt_number AS receipt, s.subtotal, s.tax, s.discount, s.total,
+                   s.status, s.void_reason AS voidReason, s.created_at AS createdAt,
+                   u.full_name AS cashier, c.status AS cashSessionStatus,
+                   (SELECT GROUP_CONCAT(CONCAT(payment.method, ':', CAST(payment.amount AS CHAR))
+                                        ORDER BY payment.id SEPARATOR '|')
+                    FROM payments payment WHERE payment.sale_id = s.id) AS paymentSummary
+            FROM sales s
+            JOIN users u ON u.id = s.cashier_id
+            JOIN cash_sessions c ON c.id = s.cash_session_id ";
     $values = [];
     if ($user['role'] === 'cashier') {
         $sql .= 'WHERE s.cashier_id = ? ';

@@ -148,6 +148,25 @@ el cobro y reservan inmediatamente los artículos de sus recetas. El POS descuen
 esas reservas de la disponibilidad de las demás cuentas y ventas rápidas. Al
 limpiar una cuenta se liberan; al cobrar se convierten en salida definitiva sin
 descontar dos veces. Una venta rápida se cobra sin dejar una cuenta pendiente.
+
+Funciones operativas del POS:
+
+- apertura, cambio y cierre de caja con cálculo del efectivo esperado;
+- búsqueda y filtrado por categoría del catálogo disponible;
+- venta rápida o cuentas pendientes con reserva inmediata de inventario;
+- modificación y eliminación de cantidades, y cancelación completa de una
+  cuenta con liberación de sus reservas;
+- descuento por venta y cobro con efectivo, tarjeta, Yappy o hasta tres métodos
+  combinados, sin permitir métodos duplicados ni diferencias en el total;
+- cálculo de efectivo recibido y cambio antes de confirmar el cobro;
+- recibo imprimible al completar la venta;
+- historial reciente con detalle de total, cajero y métodos de pago;
+- anulación de una venta mientras su caja siga abierta, con devolución del
+  inventario y trazabilidad del motivo;
+- redondeo monetario por línea idéntico en el navegador y el servidor para
+  evitar diferencias de centavos;
+- auditoría de cambios de cuenta, cobros y anulaciones.
+
 - Acceso mediante nombre de usuario, sin correo obligatorio.
 - Usuarios editables, contraseña mínima de 4 caracteres y una caja asignable por usuario.
 - Artículos y productos editables o eliminables sin alterar compras, movimientos ni ventas históricas.

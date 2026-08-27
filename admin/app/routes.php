@@ -64,6 +64,7 @@ add_route('POST', 'pos/tabs', 'pos_tab_create');
 add_route('GET', 'pos/tabs/{id}', 'pos_tab_detail');
 add_route('POST', 'pos/tabs/{id}/items', 'pos_tab_item_set');
 add_route('POST', 'pos/tabs/{id}/clear', 'pos_tab_clear');
+add_route('POST', 'pos/tabs/{id}/void', 'pos_tab_void');
 add_route('GET', 'pos/sales', 'pos_sales');
 add_route('POST', 'pos/sales', 'pos_sale_create');
 add_route('POST', 'pos/sales/{id}/void', 'pos_sale_void');
