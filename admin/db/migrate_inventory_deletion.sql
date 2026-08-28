@@ -4,7 +4,8 @@
 -- Use este archivo cuando la base de datos de NOOX Control ya existe.
 -- Agrega la marca de eliminación lógica a artículos y productos y, en bases
 -- anteriores, la columna de inventario reservado requerida por esta operación.
--- No elimina ni modifica inventario, compras, ventas, cuentas o auditorías.
+-- No cambia la existencia física ni elimina compras, ventas, cuentas o
+-- auditorías; solo reconstruye la cantidad reservada por cuentas abiertas.
 -- Puede ejecutarse más de una vez sin duplicar columnas ni alterar datos.
 
 SET NAMES utf8mb4;
@@ -30,6 +31,24 @@ PREPARE nox_inventory_reservation_migration
 FROM @nox_add_inventory_reserved_stock;
 EXECUTE nox_inventory_reservation_migration;
 DEALLOCATE PREPARE nox_inventory_reservation_migration;
+
+-- Reconstruir las reservas reales en instalaciones que ya tenían cuentas
+-- abiertas antes de agregar la columna. Esto también corrige cualquier valor
+-- heredado que hubiera quedado desincronizado.
+UPDATE inventory_items
+SET reserved_stock = 0;
+
+UPDATE inventory_items inventory
+JOIN (
+  SELECT recipe.inventory_item_id,
+         SUM(recipe.quantity * tab_item.quantity) AS reserved_quantity
+  FROM customer_tabs tab
+  JOIN customer_tab_items tab_item ON tab_item.tab_id = tab.id
+  JOIN product_recipes recipe ON recipe.product_id = tab_item.product_id
+  WHERE tab.status = 'open'
+  GROUP BY recipe.inventory_item_id
+) reservations ON reservations.inventory_item_id = inventory.id
+SET inventory.reserved_stock = GREATEST(0, reservations.reserved_quantity);
 
 SET @nox_add_inventory_deleted_at = IF(
   EXISTS(

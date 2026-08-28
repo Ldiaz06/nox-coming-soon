@@ -68,6 +68,8 @@ const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/P
 const NEW_CATEGORY = "__new_category__";
 const CUSTOM_PACKAGE = "__custom_package__";
 const DEFAULT_PRODUCT_IMAGE = "/assets/product-default-v3.webp";
+const PRODUCT_IMAGE_SIZE = 768;
+const PRODUCT_IMAGE_QUALITY = 0.82;
 const articleCategories = [
   "Cervezas nacionales", "Cervezas importadas", "Cervezas artesanales", "Cervezas sin alcohol",
   "Ron", "Aguardiente y seco", "Whisky / Whiskey", "Vodka", "Ginebra", "Tequila", "Mezcal", "Brandy y coñac",
@@ -251,9 +253,58 @@ function setImagePreview(input, container) {
 }
 
 async function uploadProductImage(productId, file) {
+  const optimizedFile = await normalizeProductImage(file);
   const body = new FormData();
-  body.append("image", file);
+  body.append("image", optimizedFile);
   return api(`/api/inventory/products/${productId}/image`, { method: "POST", body });
+}
+
+async function normalizeProductImage(file) {
+  if (!(file instanceof File)) throw new Error("Seleccione una fotografía válida.");
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Use una fotografía JPG, PNG o WebP.");
+  }
+  if (file.size <= 0 || file.size > 5 * 1024 * 1024) {
+    throw new Error("La fotografía debe pesar como máximo 5 MB.");
+  }
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      throw new Error("No fue posible leer la fotografía seleccionada.");
+    }
+  }
+  try {
+    if (bitmap.width < 32 || bitmap.height < 32 || bitmap.width > 8000 || bitmap.height > 8000
+        || bitmap.width * bitmap.height > 25000000) {
+      throw new Error("La fotografía debe medir entre 32 y 8000 píxeles por lado y no superar 25 megapíxeles.");
+    }
+    const sourceSize = Math.min(bitmap.width, bitmap.height);
+    const sourceX = Math.floor((bitmap.width - sourceSize) / 2);
+    const sourceY = Math.floor((bitmap.height - sourceSize) / 2);
+    const canvas = document.createElement("canvas");
+    canvas.width = PRODUCT_IMAGE_SIZE;
+    canvas.height = PRODUCT_IMAGE_SIZE;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) throw new Error("El navegador no pudo preparar la fotografía.");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(
+      bitmap,
+      sourceX, sourceY, sourceSize, sourceSize,
+      0, 0, PRODUCT_IMAGE_SIZE, PRODUCT_IMAGE_SIZE
+    );
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", PRODUCT_IMAGE_QUALITY));
+    if (!blob) throw new Error("El navegador no pudo convertir la fotografía a WebP.");
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "producto";
+    return new File([blob], `${baseName}.webp`, { type: "image/webp", lastModified: Date.now() });
+  } finally {
+    bitmap.close();
+  }
 }
 
 function showLogin() {
@@ -1580,7 +1631,7 @@ function renderInventory() {
       <td>${escapeHtml(item.sku)}</td>
       <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)}</small></td>
       <td>${reference}</td>
-      <td><strong>${quantityNumber.format(item.currentStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
+      <td><strong>${quantityNumber.format(item.availableStock)} ${escapeHtml(unitNames[item.unit] || item.unit)} disponibles</strong><small>${quantityNumber.format(item.currentStock)} físicas · ${quantityNumber.format(item.reservedStock)} reservadas</small></td>
       <td>${quantityNumber.format(item.minimumStock)} ${escapeHtml(unitNames[item.unit] || item.unit)}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
       <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong><small>Promedio ponderado de compras recibidas.</small></td>
       <td><span class="badge ${lowStock ? "badge--danger" : "badge--success"}">${lowStock ? "Bajo" : "Normal"}</span></td>
@@ -1936,7 +1987,7 @@ async function loadInsights(event) {
       <td><span class="badge ${statusClasses[item.status]}">${statusLabels[item.status]}</span></td>
       <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.sku)} · punto de pedido ${quantityNumber.format(item.reorderPoint)} ${escapeHtml(unit)}</small></td>
       <td>${quantityNumber.format(item.averageDailyConsumption)} ${escapeHtml(unit)}<small>${quantityNumber.format(item.consumed)} consumidos en ${data.days} días</small></td>
-      <td>${quantityNumber.format(item.currentStock)} ${escapeHtml(unit)}</td>
+      <td>${quantityNumber.format(item.availableStock)} ${escapeHtml(unit)}<small>${quantityNumber.format(item.currentStock)} físicas · ${quantityNumber.format(item.reservedStock)} reservadas</small></td>
       <td>${coverage}<small>${item.leadTimeDays} d entrega + ${item.safetyStockDays} d seguridad</small></td>
       <td>${suggested}</td>
       <td><strong>${escapeHtml(buyWhen)}</strong>${item.daysUntilOrder != null ? `<small>En ${item.daysUntilOrder} día(s)</small>` : ""}</td>

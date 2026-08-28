@@ -36,6 +36,44 @@ function pos_allocate_discount(array $lineTotals, float $discount): array
     return $lineTotals;
 }
 
+function pos_quantity($value, bool $allowZero = false): float
+{
+    if (!is_numeric($value)) {
+        throw new ApiError('La cantidad no es válida.');
+    }
+    $quantity = (float) $value;
+    $minimum = $allowZero ? 0.0 : 0.001;
+    if (!is_finite($quantity) || $quantity < $minimum || $quantity > 100) {
+        throw new ApiError('La cantidad no es válida.');
+    }
+    if (abs($quantity - round($quantity, 3)) > 0.0000001) {
+        throw new ApiError('La cantidad admite como máximo tres decimales.');
+    }
+    return round($quantity, 3);
+}
+
+function inventory_movement_result(float $currentStock, float $reservedStock, string $type, float $quantity): array
+{
+    if (!is_finite($currentStock) || !is_finite($reservedStock) || !is_finite($quantity)) {
+        throw new ApiError('La cantidad no es válida.');
+    }
+    $delta = $type === 'count' ? $quantity - $currentStock : $quantity;
+    if ($type === 'waste') {
+        $delta = -abs($quantity);
+    }
+    if ($type !== 'count' && abs($delta) < 0.0000001) {
+        throw new ApiError('La cantidad no puede ser cero.');
+    }
+    $newStock = $currentStock + $delta;
+    if ($newStock < -0.0000001) {
+        throw new ApiError('El movimiento dejaría el inventario en negativo.', 409);
+    }
+    if ($newStock + 0.000001 < $reservedStock) {
+        throw new ApiError('El movimiento dejaría la existencia por debajo de lo reservado en cuentas abiertas.', 409);
+    }
+    return ['delta' => $delta, 'currentStock' => max(0.0, $newStock)];
+}
+
 function catalog_search(): string
 {
     return trim(substr((string) ($_GET['search'] ?? ''), 0, 120));
@@ -89,12 +127,15 @@ function inventory_items(array $params = [])
                 i.safety_stock_days AS safetyStockDays,
                 i.target_stock_days AS targetStockDays,
                 i.current_stock AS currentStock,
+                i.reserved_stock AS reservedStock,
+                GREATEST(0, i.current_stock - i.reserved_stock) AS availableStock,
                 i.minimum_stock AS minimumStock, i.average_cost AS averageCost,
                 last_line.package_name AS referencePackageName,
                 last_line.units_per_package AS referenceUnitsPerPackage,
                 last_line.package_cost AS referencePackageCost,
                 last_purchase.purchased_at AS referencePurchasedAt,
-                i.active, i.current_stock <= i.minimum_stock AS lowStock
+                i.active,
+                GREATEST(0, i.current_stock - i.reserved_stock) <= i.minimum_stock AS lowStock
          {$joins}{$where}
          ORDER BY i.category, i.name
          LIMIT ? OFFSET ?"
@@ -518,7 +559,7 @@ function inventory_product_create(array $params = [])
     try {
         $result = transaction(function (PDO $pdo) use ($user, $sku, $barcode, $name, $category, $price, $taxRate, $targetMargin, $active, $normalizedRecipe): array {
             $ids = array_keys($normalizedRecipe);
-            $statement = $pdo->prepare('SELECT id, average_cost FROM inventory_items WHERE active = TRUE AND id IN (' . placeholders(count($ids)) . ')');
+            $statement = $pdo->prepare('SELECT id, average_cost FROM inventory_items WHERE active = TRUE AND deleted_at IS NULL AND id IN (' . placeholders(count($ids)) . ')');
             $statement->execute($ids);
             $itemRows = $statement->fetchAll();
             if (count($itemRows) !== count($ids)) {
@@ -617,7 +658,7 @@ function inventory_product_update(array $params)
             $ids = array_keys($normalizedRecipe);
             $items = $pdo->prepare(
                 'SELECT id, average_cost FROM inventory_items
-                 WHERE active = TRUE AND id IN (' . placeholders(count($ids)) . ')'
+                 WHERE active = TRUE AND deleted_at IS NULL AND id IN (' . placeholders(count($ids)) . ')'
             );
             $items->execute($ids);
             $itemRows = $items->fetchAll();
@@ -839,12 +880,12 @@ function inventory_product_image_upload(array $params = [])
 
     $imageInfo = @getimagesize((string) $file['tmp_name']);
     if ($imageInfo === false || ($imageInfo[0] ?? 0) < 32 || ($imageInfo[1] ?? 0) < 32
-        || ($imageInfo[0] ?? 0) > 8000 || ($imageInfo[1] ?? 0) > 8000) {
+        || ($imageInfo[0] ?? 0) > 8000 || ($imageInfo[1] ?? 0) > 8000
+        || ($imageInfo[0] ?? 0) * ($imageInfo[1] ?? 0) > 25000000) {
         throw new ApiError('La fotografía no es una imagen válida o sus dimensiones no están permitidas.');
     }
     $mime = isset($imageInfo['mime']) ? (string) $imageInfo['mime'] : '';
-    $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-    if (!isset($extensions[$mime])) {
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
         throw new ApiError('Use una fotografía JPG, PNG o WebP.');
     }
 
@@ -860,10 +901,13 @@ function inventory_product_image_upload(array $params = [])
     if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0755, true) && !is_dir($uploadDirectory)) {
         throw new ApiError('No fue posible preparar el directorio de fotografías.', 500);
     }
-    $fileName = 'product-' . $productId . '-' . bin2hex(random_bytes(12)) . '.' . $extensions[$mime];
+    $fileName = 'product-' . $productId . '-' . bin2hex(random_bytes(12)) . '.webp';
     $destination = $uploadDirectory . '/' . $fileName;
-    if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
-        throw new ApiError('No fue posible guardar la fotografía en el servidor.', 500);
+    try {
+        normalize_product_image_to_webp((string) $file['tmp_name'], $destination, $imageInfo);
+    } catch (Throwable $error) {
+        if (is_file($destination)) @unlink($destination);
+        throw $error;
     }
     @chmod($destination, 0644);
     $imagePath = '/uploads/products/' . $fileName;
@@ -894,7 +938,64 @@ function inventory_product_image_upload(array $params = [])
         }
     }
 
-    json_response(['imageUrl' => $imagePath]);
+    json_response([
+        'imageUrl' => $imagePath,
+        'format' => 'webp',
+        'width' => 768,
+        'height' => 768,
+    ]);
+}
+
+function normalize_product_image_to_webp(string $source, string $destination, ?array $imageInfo = null): void
+{
+    if (!extension_loaded('gd') || !function_exists('imagewebp')) {
+        throw new ApiError('El servidor necesita la extensión GD con soporte WebP para procesar fotografías.', 503);
+    }
+    $imageInfo = $imageInfo ?: @getimagesize($source);
+    if ($imageInfo === false) throw new ApiError('La fotografía no es válida.');
+    $mime = (string) ($imageInfo['mime'] ?? '');
+    if ($mime === 'image/jpeg') {
+        $sourceImage = @imagecreatefromjpeg($source);
+    } elseif ($mime === 'image/png') {
+        $sourceImage = @imagecreatefrompng($source);
+    } elseif ($mime === 'image/webp') {
+        $sourceImage = @imagecreatefromwebp($source);
+    } else {
+        throw new ApiError('Use una fotografía JPG, PNG o WebP.');
+    }
+    if ($sourceImage === false) throw new ApiError('No fue posible procesar la fotografía.');
+
+    $output = null;
+    try {
+        $sourceWidth = imagesx($sourceImage);
+        $sourceHeight = imagesy($sourceImage);
+        $sourceSize = min($sourceWidth, $sourceHeight);
+        $sourceX = (int) floor(($sourceWidth - $sourceSize) / 2);
+        $sourceY = (int) floor(($sourceHeight - $sourceSize) / 2);
+        $output = imagecreatetruecolor(768, 768);
+        if ($output === false) throw new ApiError('No fue posible preparar la fotografía.', 500);
+        imagealphablending($output, false);
+        imagesavealpha($output, true);
+        $transparent = imagecolorallocatealpha($output, 0, 0, 0, 127);
+        imagefill($output, 0, 0, $transparent);
+        if (!imagecopyresampled(
+            $output,
+            $sourceImage,
+            0,
+            0,
+            $sourceX,
+            $sourceY,
+            768,
+            768,
+            $sourceSize,
+            $sourceSize
+        ) || !imagewebp($output, $destination, 82)) {
+            throw new ApiError('No fue posible guardar la fotografía optimizada.', 500);
+        }
+    } finally {
+        if (is_resource($output)) imagedestroy($output);
+        if (is_resource($sourceImage)) imagedestroy($sourceImage);
+    }
 }
 
 function inventory_movement_create(array $params = [])
@@ -911,23 +1012,20 @@ function inventory_movement_create(array $params = [])
     $notes = value_string($body, 'notes', 0, 500, false);
 
     $result = transaction(function (PDO $pdo) use ($user, $itemId, $type, $quantity, $notes): array {
-        $select = $pdo->prepare('SELECT id, current_stock, average_cost FROM inventory_items WHERE id = ? AND active = TRUE AND deleted_at IS NULL FOR UPDATE');
+        $select = $pdo->prepare('SELECT id, current_stock, reserved_stock, average_cost FROM inventory_items WHERE id = ? AND active = TRUE AND deleted_at IS NULL FOR UPDATE');
         $select->execute([$itemId]);
         $item = $select->fetch();
         if (!$item) {
             throw new ApiError('Artículo no encontrado.', 404);
         }
-        $delta = $type === 'count' ? $quantity - (float) $item['current_stock'] : $quantity;
-        if ($type === 'waste') {
-            $delta = -abs($quantity);
-        }
-        if ($type !== 'count' && abs($delta) < 0.0000001) {
-            throw new ApiError('La cantidad no puede ser cero.');
-        }
-        $newStock = (float) $item['current_stock'] + $delta;
-        if ($newStock < 0) {
-            throw new ApiError('El movimiento dejaría el inventario en negativo.', 409);
-        }
+        $movementResult = inventory_movement_result(
+            (float) $item['current_stock'],
+            (float) $item['reserved_stock'],
+            $type,
+            $quantity
+        );
+        $delta = $movementResult['delta'];
+        $newStock = $movementResult['currentStock'];
         $pdo->prepare('UPDATE inventory_items SET current_stock = ? WHERE id = ?')->execute([$newStock, $itemId]);
         $movement = $pdo->prepare(
             'INSERT INTO inventory_movements
@@ -1168,9 +1266,8 @@ function pos_tab_item_set(array $params)
     $tabId = path_id($params);
     $body = request_body();
     $productId = value_id($body, 'productId');
-    if (!isset($body['quantity']) || !is_numeric($body['quantity'])) throw new ApiError('La cantidad es obligatoria.');
-    $quantity = (float) $body['quantity'];
-    if ($quantity < 0 || $quantity > 100) throw new ApiError('La cantidad no es válida.');
+    if (!array_key_exists('quantity', $body)) throw new ApiError('La cantidad es obligatoria.');
+    $quantity = pos_quantity($body['quantity'], true);
     transaction(function (PDO $pdo) use ($user, $tabId, $productId, $quantity): void {
         $tab = $pdo->prepare("SELECT id FROM customer_tabs WHERE id = ? AND status = 'open' FOR UPDATE");
         $tab->execute([$tabId]);
@@ -1330,7 +1427,7 @@ function pos_sale_create(array $params = [])
     foreach ($body['items'] as $line) {
         if (!is_array($line)) throw new ApiError('Producto inválido.');
         $productId = value_id($line, 'productId');
-        $quantity = value_number($line, 'quantity', 0.001, 100);
+        $quantity = pos_quantity($line['quantity'] ?? null);
         $requested[$productId] = ($requested[$productId] ?? 0) + $quantity;
         if ($requested[$productId] > 100) throw new ApiError('La cantidad acumulada de un producto no puede superar 100.');
     }

@@ -47,4 +47,25 @@ pos_test_assert($invalidDiscountRejected, 'El POS aceptó un descuento igual al 
 pos_test_money(10.00, suggested_product_price(3.00, 0.70), 'El precio sugerido cambió inesperadamente.');
 pos_test_money(10.01, money_round(10.005), 'El redondeo monetario no es estable.');
 
+$movement = inventory_movement_result(10.0, 4.0, 'waste', 3.0);
+pos_test_money(-3.0, $movement['delta'], 'La merma no produjo la salida esperada.');
+pos_test_money(7.0, $movement['currentStock'], 'La merma calculó una existencia incorrecta.');
+
+$reservedStockProtected = false;
+try {
+    inventory_movement_result(10.0, 8.0, 'count', 7.0);
+} catch (ApiError $error) {
+    $reservedStockProtected = $error->status === 409;
+}
+pos_test_assert($reservedStockProtected, 'El conteo permitió bajar la existencia por debajo de las reservas.');
+
+pos_test_money(1.235, pos_quantity('1.235'), 'La cantidad válida del POS cambió de precisión.');
+$excessPrecisionRejected = false;
+try {
+    pos_quantity('1.2345');
+} catch (ApiError $error) {
+    $excessPrecisionRejected = true;
+}
+pos_test_assert($excessPrecisionRejected, 'El POS aceptó más decimales de los que almacena MySQL.');
+
 echo "POS logic tests: OK\n";

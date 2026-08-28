@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>NOOX Control — Administración</title>
   <link rel="icon" href="/favicon.svg?v=20260806-1" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=20260827-1">
+  <link rel="stylesheet" href="/styles.css?v=20260828-1">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir al contenido</a>
@@ -343,7 +343,7 @@
           <label id="product-new-category-field" hidden>Nueva categoría<input name="categoryNew" maxlength="100" placeholder="Escriba la nueva categoría"></label>
           <label>Código de barras<input name="barcode" maxlength="120"></label><label>Precio de venta<input name="salePrice" type="number" min="0" step="0.01" required></label><label>Margen bruto objetivo (%)<input name="targetMargin" type="number" min="10" max="95" step="0.1" value="70" required><small class="field-hint">Porcentaje del precio que debe quedar después del costo de ingredientes.</small></label><label>Impuesto (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="0"></label>
           <label>Estado<select name="active"><option value="1">Activo en el POS</option><option value="0">Inactivo</option></select></label>
-          <label class="product-photo-field">Foto del producto (opcional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp"><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Si no selecciona una, se utilizará la imagen predeterminada de NOOX.</small></label>
+          <label class="product-photo-field">Foto del producto (opcional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp"><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Se recorta al centro, convierte a WebP y guarda en 768 × 768 px.</small></label>
           <div id="product-image-preview" class="image-preview" hidden><img alt="Vista previa del producto"></div>
           <div class="wide-field"><div class="recipe-heading"><div><span>Artículos que componen este producto</span><small>Cantidades descontadas por cada unidad vendida.</small></div><button id="add-recipe-row" type="button" class="text-button">+ Agregar artículo</button></div><div id="recipe-rows" class="recipe-rows"></div></div>
           <div id="product-pricing-preview" class="pricing-preview wide-field" role="status" aria-live="polite"></div>
@@ -441,7 +441,7 @@
     <form method="dialog" id="product-image-form" class="dialog-form">
       <div><p class="eyebrow">CATÁLOGO DEL POS</p><h2>Foto del producto</h2><p id="product-image-name" class="muted"></p></div>
       <input name="productId" type="hidden">
-      <label>Seleccionar fotografía<input name="image" type="file" accept="image/jpeg,image/png,image/webp" required><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Reemplaza la foto anterior.</small></label>
+      <label>Seleccionar fotografía<input name="image" type="file" accept="image/jpeg,image/png,image/webp" required><small class="field-hint">JPG, PNG o WebP · máximo 5 MB. Se recorta al centro, convierte a WebP y guarda en 768 × 768 px.</small></label>
       <div id="product-image-dialog-preview" class="image-preview" hidden><img alt="Vista previa de la nueva fotografía"></div>
       <div class="form-actions"><button class="button button--primary" value="submit">Guardar fotografía</button><button class="button button--ghost" value="cancel">Cancelar</button></div>
     </form>
@@ -543,6 +543,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260827-1" defer></script>
+  <script src="/app.js?v=20260828-2" defer></script>
 </body>
 </html>

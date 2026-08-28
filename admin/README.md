@@ -137,9 +137,9 @@ riesgo) el archivo idempotente:
 ```
 
 Esta migración agrega `deleted_at` a `inventory_items` y `products`. En bases
-anteriores también crea `reserved_stock` con valor inicial cero cuando todavía
-no existe; no elimina ni modifica existencias, compras, ventas, cuentas o
-auditorías.
+anteriores también crea `reserved_stock` cuando todavía no existe y reconstruye
+su valor desde las cuentas abiertas. No altera la existencia física, compras,
+ventas, cuentas ni auditorías.
 
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
 debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
@@ -177,6 +177,9 @@ Funciones operativas del POS:
 - Análisis de rentabilidad por producto, merma valorada y planificación de reposición.
 - Cierres diarios, reportes quincenales y mensuales.
 - Compras, ajustes, mermas, conteos, horas y planilla.
+- Existencia física, reservada y disponible diferenciadas en inventario y
+  reposición; los conteos, ajustes y mermas nunca pueden consumir unidades ya
+  apartadas por una cuenta abierta.
 
 ## Modelo de artículos y productos
 
@@ -201,8 +204,12 @@ categorías para bares y discotecas. Si una categoría no existe, seleccione
 `+ Agregar nueva categoría` y escríbala; después de guardar el registro, esa
 categoría queda disponible automáticamente para los siguientes registros.
 
-Cada producto puede llevar una fotografía JPG, PNG o WebP de hasta 5 MB. Si no
-se carga una imagen, el sistema utiliza automáticamente el recurso liviano
+Cada producto puede recibir una fotografía JPG, PNG o WebP de hasta 5 MB. Antes
+de enviarla, el navegador la recorta al centro y la convierte a WebP; el
+servidor vuelve a normalizarla y la guarda siempre en **768 × 768 px**, WebP y
+calidad 82. Este doble control mantiene uniforme el catálogo y evita almacenar
+los originales pesados. El servidor requiere PHP GD con soporte WebP. Si no se
+carga una imagen, el sistema utiliza automáticamente el recurso liviano
 `/assets/product-default-v3.webp`, con un único objeto abstracto y neutral
 sobre una barra nocturna, sin asociarlo con bebidas, alimentos ni otra
 categoría particular. La imagen se muestra en el catálogo administrativo y en

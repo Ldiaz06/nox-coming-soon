@@ -180,7 +180,8 @@ function reports_summary(array $params = [])
     $closures->execute($values);
     $inventory = $pdo->query(
         'SELECT COUNT(*) AS itemCount, COALESCE(SUM(current_stock * average_cost), 0) AS inventoryValue,
-                SUM(current_stock <= minimum_stock) AS lowStockCount FROM inventory_items WHERE active = TRUE'
+                SUM(GREATEST(0, current_stock - reserved_stock) <= minimum_stock) AS lowStockCount
+         FROM inventory_items WHERE active = TRUE AND deleted_at IS NULL'
     )->fetch() ?: [];
     $trend = $pdo->prepare(
         "SELECT DATE(created_at) AS saleDate, SUM(total) AS total, COUNT(*) AS transactions
@@ -199,9 +200,14 @@ function reports_low_stock(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
-        'SELECT id, sku, name, unit, current_stock AS currentStock, minimum_stock AS minimumStock
-         FROM inventory_items WHERE active = TRUE AND current_stock <= minimum_stock
-         ORDER BY (minimum_stock - current_stock) DESC, name'
+        'SELECT id, sku, name, unit, current_stock AS currentStock,
+                reserved_stock AS reservedStock,
+                GREATEST(0, current_stock - reserved_stock) AS availableStock,
+                minimum_stock AS minimumStock
+         FROM inventory_items
+         WHERE active = TRUE AND deleted_at IS NULL
+           AND GREATEST(0, current_stock - reserved_stock) <= minimum_stock
+         ORDER BY (minimum_stock - GREATEST(0, current_stock - reserved_stock)) DESC, name'
     )->fetchAll();
     json_response(['items' => $rows]);
 }
@@ -236,7 +242,7 @@ function reports_inventory_intelligence(array $params = [])
            WHERE s.status = 'completed' AND s.created_at >= ?
            GROUP BY si.product_id
          ) sales ON sales.product_id = p.id
-         WHERE p.active = TRUE
+         WHERE p.active = TRUE AND p.deleted_at IS NULL
          ORDER BY p.category, p.name"
     );
     $profitabilityStatement->execute([$start]);
@@ -302,7 +308,9 @@ function reports_inventory_intelligence(array $params = [])
                 COALESCE(last_line.package_name, 'Unidad base') AS packageName,
                 COALESCE(last_line.units_per_package, 1) AS unitsPerPackage,
                 COALESCE(last_line.package_cost, 0) AS referencePackageCost,
-                i.current_stock AS currentStock, i.minimum_stock AS minimumStock,
+                i.current_stock AS currentStock, i.reserved_stock AS reservedStock,
+                GREATEST(0, i.current_stock - i.reserved_stock) AS availableStock,
+                i.minimum_stock AS minimumStock,
                 i.average_cost AS averageCost, i.lead_time_days AS leadTimeDays,
                 i.safety_stock_days AS safetyStockDays, i.target_stock_days AS targetStockDays,
                 COALESCE(consumption.consumed, 0) AS consumed,
@@ -335,14 +343,16 @@ function reports_inventory_intelligence(array $params = [])
              ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
              LIMIT 1
            )
-         WHERE i.active = TRUE
+         WHERE i.active = TRUE AND i.deleted_at IS NULL
          ORDER BY i.category, i.name"
     );
     $reorderStatement->execute([$start]);
     $reorder = [];
     $statusPriority = ['critical' => 0, 'soon' => 1, 'stable' => 2, 'no_movement' => 3];
     foreach ($reorderStatement->fetchAll() as $row) {
-        $stock = (float) $row['currentStock'];
+        $physicalStock = (float) $row['currentStock'];
+        $reservedStock = (float) $row['reservedStock'];
+        $stock = (float) $row['availableStock'];
         $minimum = (float) $row['minimumStock'];
         $consumed = (float) $row['consumed'];
         $daily = $consumed / $days;
@@ -381,7 +391,9 @@ function reports_inventory_intelligence(array $params = [])
             'unit' => $row['unit'],
             'packageName' => $row['packageName'],
             'unitsPerPackage' => $packageSize,
-            'currentStock' => $stock,
+            'currentStock' => $physicalStock,
+            'reservedStock' => $reservedStock,
+            'availableStock' => $stock,
             'minimumStock' => $minimum,
             'averageCost' => (float) $row['averageCost'],
             'consumed' => $consumed,

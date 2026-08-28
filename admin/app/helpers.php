@@ -58,7 +58,7 @@ function value_number(array $data, string $key, float $min = 0, ?float $max = nu
         throw new ApiError("El campo {$key} no es válido.");
     }
     $value = (float) $data[$key];
-    if ($value < $min || ($max !== null && $value > $max)) {
+    if (!is_finite($value) || $value < $min || ($max !== null && $value > $max)) {
         throw new ApiError("El campo {$key} está fuera del rango permitido.");
     }
     return $value;
