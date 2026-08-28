@@ -144,8 +144,8 @@ Funciones operativas del POS:
 ## Modelo de artículos y productos
 
 - **Artículo físico:** lo que se almacena y cuenta. Define su identidad,
-  categoría y unidad base de inventario, pero no fija presentación ni precio
-  de compra.
+  categoría, unidad base, presentación habitual y cuántas unidades base contiene
+  cada presentación. No fija el precio de compra.
 - **Compra:** registra la presentación recibida, su contenido, cantidad entera
   y precio real por cada factura. Conserva el historial aunque esos datos
   cambien entre compras.
@@ -190,13 +190,14 @@ find /home/noxpana/public_html/admin/public/uploads -type d -exec chmod 755 {} \
 find /home/noxpana/public_html/admin/public/uploads -type f -exec chmod 644 {} \;
 ```
 
-Ejemplos al registrar una compra:
+Ejemplos de configuración y consumo:
 
-- una caja de 24 cervezas se recibe como presentación `Caja de 24`, contenido
-  `24` y unidad base `unidad`; recibir 2 cajas agrega 48 unidades;
-- una botella de licor de 750 ml se recibe como presentación
-  `Botella de 750 ml`, contenido `750` y unidad base `ml`; un producto que use
-  50 ml descuenta exactamente esa cantidad en cada venta.
+- el artículo **Cerveza** se configura con unidad base `unidad`, presentación
+  `Caja de 24` y contenido `24`. Recibir 2 cajas agrega 48 unidades; el producto
+  **Cerveza individual** usa cantidad `1` y cada venta descuenta una cerveza;
+- el artículo **Vodka** se configura con unidad base `ml`, presentación
+  `Botella de 750 ml` y contenido `750`. Recibir una botella agrega 750 ml; un
+  producto **Trago de vodka** con cantidad `50` descuenta 50 ml por venta.
 
 Los costos de compra se introducen por caja, paquete o botella en cada
 recepción. El sistema los convierte automáticamente a costo por unidad base,

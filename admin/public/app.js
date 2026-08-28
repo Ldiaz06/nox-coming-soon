@@ -1624,9 +1624,9 @@ function renderInventory() {
   $("#inventory-summary").textContent = `${pagination.total} artículos · mostrando ${pagination.from}–${pagination.to}`;
   $("#inventory-table").innerHTML = items.map((item) => {
     const lowStock = Number(item.lowStock) === 1;
-    const reference = item.referencePackageName
-      ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small>`
-      : '<span class="badge">Sin compras</span><small>La primera presentación y precio se definen al comprar.</small>';
+    const reference = item.referencePurchasedAt
+      ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación · última compra</small>`
+      : `<strong>${escapeHtml(item.packageName)}</strong><small>${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación · sin compras</small>`;
     return `<tr>
       <td>${escapeHtml(item.sku)}</td>
       <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)}</small></td>
@@ -1666,7 +1666,7 @@ function renderArticles() {
     <td><strong>${escapeHtml(item.name)}</strong></td>
     <td>${escapeHtml(item.category)}</td>
     <td>${escapeHtml(unitNames[item.unit] || item.unit)}</td>
-    <td>${item.referencePackageName ? `<strong>${escapeHtml(item.referencePackageName)} · ${money.format(item.referencePackageCost)}</strong><small>${quantityNumber.format(item.referenceUnitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación</small>` : '<span class="badge">Sin compras</span>'}</td>
+    <td><strong>${escapeHtml(item.packageName)}</strong><small>${quantityNumber.format(item.unitsPerPackage)} ${escapeHtml(unitNames[item.unit] || item.unit)} por presentación${item.referencePurchasedAt ? ` · última compra ${money.format(item.referencePackageCost)}` : " · sin compras"}</small></td>
     <td><strong>${money.format(item.averageCost)} / ${escapeHtml(unitNames[item.unit] || item.unit)}</strong></td>
     <td><button type="button" class="table-action" data-edit-item="${item.id}">Editar</button> <button type="button" class="table-action table-action--danger" data-delete-item="${item.id}">Eliminar</button></td>
   </tr>`).join("") || '<tr><td colspan="8" class="empty-state">No hay artículos con este filtro.</td></tr>';
@@ -1718,7 +1718,7 @@ function updateInventoryRow(row, kind, resetPresentation = false) {
   if (kind === "recipe") {
     const quantity = Number($("[name=quantity]", row)?.value || 0);
     const componentCost = quantity * Number(item.averageCost || 0);
-    hint.textContent = `Se descontará en ${unit} · costo actual ${money.format(componentCost)}.`;
+    hint.textContent = `Cada venta descuenta ${quantityNumber.format(quantity)} ${unit}. 1 ${item.packageName || item.referencePackageName || "presentación"} contiene ${quantityNumber.format(item.unitsPerPackage || item.referenceUnitsPerPackage || 1)} ${unit} · costo actual ${money.format(componentCost)}.`;
     updateProductPricingPreview();
     return;
   }
@@ -1739,9 +1739,9 @@ function updateInventoryRow(row, kind, resetPresentation = false) {
   }
   const packageName = selectedPackageName(row) || "presentación";
   const unitsPerPackage = Number($("[name=unitsPerPackage]", row).value || 0);
-  const reference = item.referencePackageName
+  const reference = item.referencePurchasedAt
     ? ` Última compra: ${item.referencePackageName} a ${money.format(item.referencePackageCost)}.`
-    : " No hay compras anteriores; complete los datos de esta factura.";
+    : ` Presentación habitual: ${item.packageName}, ${quantityNumber.format(item.unitsPerPackage)} ${unit}.`;
   hint.textContent = `1 ${packageName} agrega ${quantityNumber.format(unitsPerPackage)} ${unit} al inventario.${reference}`;
 }
 
@@ -1905,14 +1905,26 @@ function openInventoryForm(id) {
   });
 }
 
+function updateItemPackageHint() {
+  const form = $("#new-item-form");
+  const packageName = String(form.elements.packageName.value || "Presentación").trim() || "Presentación";
+  const units = Number(form.elements.unitsPerPackage.value || 0);
+  const unit = unitNames[form.elements.unit.value] || form.elements.unit.value;
+  $("#item-package-hint").textContent = units > 0
+    ? `1 ${packageName} agrega ${quantityNumber.format(units)} ${unit} al inventario.`
+    : "Indique cuántas unidades base contiene una presentación.";
+}
+
 function prepareItemForm(item = null) {
   const form = $("#new-item-form");
   form.reset();
   refreshCategoryCatalogs();
   form.elements.recordId.value = item?.id || "";
   $("#item-form-eyebrow").textContent = item ? "EDITAR ARTÍCULO" : "NUEVO ARTÍCULO";
-  $("#item-form-title").textContent = item ? `Actualizar ${item.name}` : "Definir el artículo y su unidad de control";
+  $("#item-form-title").textContent = item ? `Actualizar ${item.name}` : "Definir el artículo, la presentación y su unidad de control";
   $("#item-form-submit").textContent = item ? "Guardar cambios" : "Guardar artículo físico";
+  form.elements.packageName.value = item?.packageName || "Unidad";
+  form.elements.unitsPerPackage.value = Number(item?.unitsPerPackage || 1);
   if (item) {
     form.elements.sku.value = item.sku;
     form.elements.name.value = item.name;
@@ -1924,6 +1936,7 @@ function prepareItemForm(item = null) {
     form.elements.targetStockDays.value = Number(item.targetStockDays || 14);
   }
   toggleNewCategory($("#item-category-input"), $("#item-new-category-field"));
+  updateItemPackageHint();
   openInventoryForm("new-item-form");
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -2270,6 +2283,14 @@ $("#purchase-rows").addEventListener("input", (event) => {
   updateInventoryRow(row, "purchase");
 });
 $("#item-category-input").addEventListener("change", () => toggleNewCategory($("#item-category-input"), $("#item-new-category-field")));
+$("#new-item-form [name=unit]").addEventListener("change", updateItemPackageHint);
+$("#new-item-form [name=packageName]").addEventListener("input", updateItemPackageHint);
+$("#new-item-form [name=packageName]").addEventListener("change", (event) => {
+  const units = packageSizeForName(event.currentTarget.value);
+  if (units) $("#new-item-form [name=unitsPerPackage]").value = units;
+  updateItemPackageHint();
+});
+$("#new-item-form [name=unitsPerPackage]").addEventListener("input", updateItemPackageHint);
 $("#product-category-input").addEventListener("change", () => toggleNewCategory($("#product-category-input"), $("#product-new-category-field")));
 $("#new-product-form [name=image]").addEventListener("change", (event) => setImagePreview(event.currentTarget, $("#product-image-preview")));
 $("#new-product-form").addEventListener("input", updateProductPricingPreview);
@@ -2287,6 +2308,8 @@ $("#new-item-form").addEventListener("submit", async (event) => {
         name: values.name,
         category: categoryFromForm(form),
         unit: values.unit,
+        packageName: values.packageName,
+        unitsPerPackage: Number(values.unitsPerPackage),
         minimumStock: Number(values.minimumStock || 0),
         leadTimeDays: Number(values.leadTimeDays || 0),
         safetyStockDays: Number(values.safetyStockDays || 0),

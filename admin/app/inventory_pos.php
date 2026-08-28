@@ -79,6 +79,26 @@ function catalog_search(): string
     return trim(substr((string) ($_GET['search'] ?? ''), 0, 120));
 }
 
+function inventory_package_definition(array $body): array
+{
+    return [
+        'packageName' => value_string($body, 'packageName', 1, 80) ?? '',
+        'unitsPerPackage' => value_number($body, 'unitsPerPackage', 0.0001, 1000000),
+    ];
+}
+
+function inventory_purchase_conversion(float $packageQuantity, float $unitsPerPackage, float $packageCost): array
+{
+    if (!is_finite($packageQuantity) || !is_finite($unitsPerPackage) || !is_finite($packageCost)
+        || $packageQuantity <= 0 || $unitsPerPackage <= 0 || $packageCost < 0) {
+        throw new ApiError('La presentación de compra no es válida.');
+    }
+    return [
+        'quantity' => $packageQuantity * $unitsPerPackage,
+        'unitCost' => $packageCost / $unitsPerPackage,
+    ];
+}
+
 function catalog_pagination(int $total, int $defaultPerPage = 20, int $maximumPerPage = 100): array
 {
     $perPage = max(6, min((int) ($_GET['perPage'] ?? $defaultPerPage), $maximumPerPage));
@@ -113,7 +133,7 @@ function inventory_items(array $params = [])
     $where = ' WHERE i.active = TRUE AND i.deleted_at IS NULL';
     $values = [];
     if ($search !== '') {
-        $where .= " AND LOWER(CONCAT_WS(' ', i.sku, i.name, i.category, last_line.package_name)) LIKE ?";
+        $where .= " AND LOWER(CONCAT_WS(' ', i.sku, i.name, i.category, i.package_name, last_line.package_name)) LIKE ?";
         $values[] = '%' . strtolower($search) . '%';
     }
     $countStatement = db()->prepare("SELECT COUNT(*) {$joins}{$where}");
@@ -123,6 +143,8 @@ function inventory_items(array $params = [])
 
     $statement = db()->prepare(
         "SELECT i.id, i.sku, i.name, i.category, i.unit,
+                i.package_name AS packageName,
+                i.units_per_package AS unitsPerPackage,
                 i.lead_time_days AS leadTimeDays,
                 i.safety_stock_days AS safetyStockDays,
                 i.target_stock_days AS targetStockDays,
@@ -130,8 +152,8 @@ function inventory_items(array $params = [])
                 i.reserved_stock AS reservedStock,
                 GREATEST(0, i.current_stock - i.reserved_stock) AS availableStock,
                 i.minimum_stock AS minimumStock, i.average_cost AS averageCost,
-                last_line.package_name AS referencePackageName,
-                last_line.units_per_package AS referenceUnitsPerPackage,
+                COALESCE(last_line.package_name, i.package_name) AS referencePackageName,
+                COALESCE(last_line.units_per_package, i.units_per_package) AS referenceUnitsPerPackage,
                 last_line.package_cost AS referencePackageCost,
                 last_purchase.purchased_at AS referencePurchasedAt,
                 i.active,
@@ -154,12 +176,15 @@ function inventory_item_options(array $params = [])
 {
     require_roles(['admin', 'supervisor']);
     $rows = db()->query(
-        'SELECT i.id, i.sku, i.name, i.category, i.unit, i.average_cost AS averageCost,
+        'SELECT i.id, i.sku, i.name, i.category, i.unit,
+                i.package_name AS packageName, i.units_per_package AS unitsPerPackage,
+                i.average_cost AS averageCost,
                 i.lead_time_days AS leadTimeDays, i.safety_stock_days AS safetyStockDays,
                 i.target_stock_days AS targetStockDays,
-                last_line.package_name AS referencePackageName,
-                last_line.units_per_package AS referenceUnitsPerPackage,
-                last_line.package_cost AS referencePackageCost
+                COALESCE(last_line.package_name, i.package_name) AS referencePackageName,
+                COALESCE(last_line.units_per_package, i.units_per_package) AS referenceUnitsPerPackage,
+                last_line.package_cost AS referencePackageCost,
+                last_purchase.purchased_at AS referencePurchasedAt
          FROM inventory_items i
          LEFT JOIN purchase_items last_line
            ON last_line.id = (
@@ -171,14 +196,21 @@ function inventory_item_options(array $params = [])
              ORDER BY candidate_purchase.purchased_at DESC, candidate.id DESC
              LIMIT 1
            )
+         LEFT JOIN purchases last_purchase ON last_purchase.id = last_line.purchase_id
          WHERE i.active = TRUE AND i.deleted_at IS NULL ORDER BY i.category, i.name'
     )->fetchAll();
     $presentations = db()->query(
-        "SELECT package_name AS name, units_per_package AS unitsPerPackage
-         FROM purchase_items
-         WHERE package_name IS NOT NULL AND TRIM(package_name) <> ''
-         GROUP BY package_name, units_per_package
-         ORDER BY package_name, units_per_package"
+        "SELECT name, unitsPerPackage
+         FROM (
+           SELECT package_name AS name, units_per_package AS unitsPerPackage
+           FROM inventory_items
+           WHERE active = TRUE AND deleted_at IS NULL
+           UNION
+           SELECT package_name AS name, units_per_package AS unitsPerPackage
+           FROM purchase_items
+         ) presentation_catalog
+         WHERE name IS NOT NULL AND TRIM(name) <> ''
+         ORDER BY name, unitsPerPackage"
     )->fetchAll();
     json_response(['items' => $rows, 'presentations' => $presentations]);
 }
@@ -288,11 +320,9 @@ function inventory_item_create(array $params = [])
         ['unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg'],
         'unit'
     );
-    // Purchase terms are intentionally not part of the article master.
-    // These compatibility values keep the existing schema usable; every real
-    // presentation, conversion and price is stored in purchase_items.
-    $packageName = 'Unidad base';
-    $unitsPerPackage = 1.0;
+    $package = inventory_package_definition($body);
+    $packageName = $package['packageName'];
+    $unitsPerPackage = $package['unitsPerPackage'];
     $initialPackages = 0.0;
     $packageCost = 0.0;
     $stock = $initialPackages * $unitsPerPackage;
@@ -358,6 +388,9 @@ function inventory_item_update(array $params)
         ['unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg'],
         'unit'
     );
+    $package = inventory_package_definition($body);
+    $packageName = $package['packageName'];
+    $unitsPerPackage = $package['unitsPerPackage'];
     $minimum = value_number($body, 'minimumStock', 0);
     $leadTimeDays = (int) round(value_number($body, 'leadTimeDays', 0, 365));
     $safetyStockDays = (int) round(value_number($body, 'safetyStockDays', 0, 365));
@@ -367,9 +400,10 @@ function inventory_item_update(array $params)
     }
 
     try {
-        transaction(function (PDO $pdo) use ($user, $itemId, $sku, $name, $category, $unit, $minimum, $leadTimeDays, $safetyStockDays, $targetStockDays): void {
+        transaction(function (PDO $pdo) use ($user, $itemId, $sku, $name, $category, $unit, $packageName, $unitsPerPackage, $minimum, $leadTimeDays, $safetyStockDays, $targetStockDays): void {
             $statement = $pdo->prepare(
-                'SELECT id, sku, name, category, unit, minimum_stock AS minimumStock,
+                'SELECT id, sku, name, category, unit, package_name AS packageName,
+                        units_per_package AS unitsPerPackage, minimum_stock AS minimumStock,
                         lead_time_days AS leadTimeDays, safety_stock_days AS safetyStockDays,
                         target_stock_days AS targetStockDays, current_stock AS currentStock,
                         reserved_stock AS reservedStock
@@ -394,12 +428,14 @@ function inventory_item_update(array $params)
             }
             $pdo->prepare(
                 'UPDATE inventory_items
-                 SET sku = ?, name = ?, category = ?, unit = ?, minimum_stock = ?,
+                 SET sku = ?, name = ?, category = ?, unit = ?, package_name = ?,
+                     units_per_package = ?, minimum_stock = ?,
                      lead_time_days = ?, safety_stock_days = ?, target_stock_days = ?
                  WHERE id = ?'
-            )->execute([$sku, $name, $category, $unit, $minimum, $leadTimeDays, $safetyStockDays, $targetStockDays, $itemId]);
+            )->execute([$sku, $name, $category, $unit, $packageName, $unitsPerPackage, $minimum, $leadTimeDays, $safetyStockDays, $targetStockDays, $itemId]);
             audit_log($pdo, $user, 'update', 'inventory_item', $itemId, $before, [
                 'sku' => $sku, 'name' => $name, 'category' => $category, 'unit' => $unit,
+                'packageName' => $packageName, 'unitsPerPackage' => $unitsPerPackage,
                 'minimumStock' => $minimum, 'leadTimeDays' => $leadTimeDays,
                 'safetyStockDays' => $safetyStockDays, 'targetStockDays' => $targetStockDays,
             ]);
@@ -1091,8 +1127,13 @@ function inventory_purchase_create(array $params = [])
             $packageName = $line['packageName'];
             $unitsPerPackage = $line['unitsPerPackage'];
             if ($unitsPerPackage <= 0) throw new ApiError('La presentación del artículo no es válida.', 409);
-            $quantity = $line['packageQuantity'] * $unitsPerPackage;
-            $unitCost = $line['packageCost'] / $unitsPerPackage;
+            $conversion = inventory_purchase_conversion(
+                (float) $line['packageQuantity'],
+                (float) $unitsPerPackage,
+                (float) $line['packageCost']
+            );
+            $quantity = $conversion['quantity'];
+            $unitCost = $conversion['unitCost'];
             $oldValue = (float) $item['current_stock'] * (float) $item['average_cost'];
             $newStock = (float) $item['current_stock'] + $quantity;
             $newCost = $newStock > 0 ? ($oldValue + $quantity * $unitCost) / $newStock : $unitCost;

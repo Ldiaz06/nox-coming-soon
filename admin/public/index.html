@@ -315,11 +315,14 @@
         </div>
         <form id="new-item-form" class="panel inline-form" hidden>
           <input name="recordId" type="hidden">
-          <div class="form-intro wide-field"><p id="item-form-eyebrow" class="eyebrow">NUEVO ARTÍCULO</p><h3 id="item-form-title">Definir el artículo y su unidad de control</h3><p>Aquí no se fija una presentación ni un precio de compra. Esos datos se registran con cada factura porque pueden cambiar entre compras.</p></div>
+          <div class="form-intro wide-field"><p id="item-form-eyebrow" class="eyebrow">NUEVO ARTÍCULO</p><h3 id="item-form-title">Definir el artículo, la presentación y su unidad de control</h3><p>La presentación habitual convierte cada caja, botella o paquete a la unidad base que descontarán las ventas. El precio y la presentación real todavía pueden cambiar en cada compra.</p></div>
           <label>SKU del artículo<input name="sku" required></label><label>Nombre del artículo<input name="name" required placeholder="Balboa 355 ml"></label>
           <label>Categoría<select id="item-category-input" name="category" required><option value="">Seleccione una categoría</option></select></label>
           <label id="item-new-category-field" hidden>Nueva categoría<input name="categoryNew" maxlength="100" placeholder="Escriba la nueva categoría"></label>
           <label>Unidad de control<select name="unit"><option value="unit">Unidad / pieza</option><option value="bottle">Botella completa</option><option value="can">Lata</option><option value="ml">Mililitro (ml)</option><option value="liter">Litro (L)</option><option value="fluid_ounce">Onza líquida (fl oz)</option><option value="gram">Gramo (g)</option><option value="kg">Kilogramo (kg)</option><option value="portion">Porción</option><option value="pack">Paquete</option><option value="case">Caja</option><option value="keg">Barril</option></select></label>
+          <label>Presentación habitual<input name="packageName" list="item-package-options" maxlength="80" value="Unidad" placeholder="Caja de 24 o Botella de 750 ml" required></label>
+          <datalist id="item-package-options"><option value="Unidad"><option value="Caja de 12"><option value="Caja de 24"><option value="Caja de 30"><option value="Botella de 355 ml"><option value="Botella de 750 ml"><option value="Botella de 1 L"><option value="Paquete de 6"></datalist>
+          <label>Contenido por presentación<input name="unitsPerPackage" type="number" min="0.0001" max="1000000" step="0.0001" value="1" required><small id="item-package-hint" class="field-hint">1 Unidad agrega 1 unidad al inventario.</small></label>
           <label>Stock mínimo en unidad base<input name="minimumStock" type="number" min="0" step="0.001" value="0"></label>
           <label>Tiempo de entrega (días)<input name="leadTimeDays" type="number" min="0" max="365" step="1" value="3" required><small class="field-hint">Días habituales desde el pedido hasta recibirlo.</small></label>
           <label>Stock de seguridad (días)<input name="safetyStockDays" type="number" min="0" max="365" step="1" value="2" required><small class="field-hint">Cobertura adicional ante retrasos o mayor demanda.</small></label>
@@ -543,6 +546,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260828-2" defer></script>
+  <script src="/app.js?v=20260828-3" defer></script>
 </body>
 </html>

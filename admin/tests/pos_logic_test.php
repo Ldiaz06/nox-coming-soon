@@ -68,4 +68,33 @@ try {
 }
 pos_test_assert($excessPrecisionRejected, 'El POS aceptó más decimales de los que almacena MySQL.');
 
+$beerPackage = inventory_package_definition([
+    'packageName' => 'Caja de 24',
+    'unitsPerPackage' => 24,
+]);
+pos_test_assert($beerPackage['packageName'] === 'Caja de 24', 'Cambió el nombre de la presentación de cerveza.');
+pos_test_money(24.0, $beerPackage['unitsPerPackage'], 'La caja de cerveza no conserva sus 24 unidades.');
+
+$vodkaPackage = inventory_package_definition([
+    'packageName' => 'Botella de 750 ml',
+    'unitsPerPackage' => 750,
+]);
+pos_test_money(750.0, $vodkaPackage['unitsPerPackage'], 'La botella de vodka no conserva sus 750 ml.');
+
+$beerReceipt = inventory_purchase_conversion(2, 24, 24.00);
+pos_test_money(48.0, $beerReceipt['quantity'], 'Dos cajas de 24 no agregaron 48 cervezas.');
+pos_test_money(1.0, $beerReceipt['unitCost'], 'El costo por cerveza no se convirtió correctamente.');
+
+$vodkaReceipt = inventory_purchase_conversion(1, 750, 15.00);
+pos_test_money(750.0, $vodkaReceipt['quantity'], 'Una botella de 750 ml no agregó 750 ml.');
+pos_test_money(0.02, $vodkaReceipt['unitCost'], 'El costo por ml de vodka no se convirtió correctamente.');
+
+$emptyPackageRejected = false;
+try {
+    inventory_package_definition(['packageName' => 'Caja de 24', 'unitsPerPackage' => 0]);
+} catch (ApiError $error) {
+    $emptyPackageRejected = true;
+}
+pos_test_assert($emptyPackageRejected, 'El artículo aceptó una presentación sin contenido.');
+
 echo "POS logic tests: OK\n";
