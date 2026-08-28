@@ -231,7 +231,7 @@ function event_guest_lists_ensure_schema(PDO $pdo): void
     } catch (Throwable $error) {
         error_log('NOOX guest lists schema update failed: ' . $error->__toString());
         throw new ApiError(
-            'La base de datos de Eventos necesita actualizarse. Ejecute admin/db/migrate_guest_lists.sql y admin/db/migrate_promoter_portal.sql en phpMyAdmin, y vuelva a intentar.',
+            'La base de datos necesita actualizarse. Ejecute admin/db/schema.sql en phpMyAdmin y vuelva a intentar.',
             503
         );
     } finally {

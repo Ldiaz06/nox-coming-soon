@@ -3,8 +3,10 @@
 --
 -- Crea la base noxpana_noxpa cuando no existe, la selecciona y prepara todas
 -- las tablas del sistema. También puede volver a ejecutarse sobre una
--- instalación existente: no elimina tablas ni registros. Antes de aplicarlo en
--- producción, conserve siempre un respaldo reciente.
+-- instalación existente: solo crea tablas, columnas, índices y relaciones que
+-- falten. No inserta, actualiza ni elimina registros existentes y no contiene
+-- datos iniciales o de ejemplo. Antes de aplicarlo en producción, conserve
+-- siempre un respaldo reciente.
 
 SET NAMES utf8mb4;
 SET time_zone = '-05:00';
@@ -447,13 +449,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
   CONSTRAINT audit_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
-INSERT INTO terminals (name, location_name)
-SELECT 'Caja principal', 'Bar principal'
-WHERE NOT EXISTS (SELECT 1 FROM terminals WHERE name = 'Caja principal');
-
--- Las instalaciones anteriores usaban correo como credencial, empleados
--- mensuales y cajas sin usuario asignado. Este procedimiento detecta el estado
--- real de cada instalación y aplica únicamente los cambios que hagan falta.
+-- Este procedimiento temporal detecta el estado real de cada instalación y
+-- aplica únicamente cambios de estructura que hagan falta. Nunca modifica las
+-- filas almacenadas en las tablas de la aplicación.
 DROP PROCEDURE IF EXISTS nox_prepare_database;
 
 DELIMITER $$
@@ -496,7 +494,13 @@ BEGIN
     AND referenced_table_name = 'event_guest_lists'
     AND referenced_column_name = 'id';
 
-  IF constraint_exists = 0 THEN
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM event_guests guest
+  LEFT JOIN event_guest_lists guest_list ON guest_list.id = guest.guest_list_id
+  WHERE guest.guest_list_id IS NOT NULL
+    AND guest_list.id IS NULL;
+
+  IF constraint_exists = 0 AND secondary_column_exists = 0 THEN
     ALTER TABLE event_guests
       ADD CONSTRAINT event_guests_list_fk
       FOREIGN KEY (guest_list_id) REFERENCES event_guest_lists(id) ON DELETE SET NULL;
@@ -552,27 +556,19 @@ BEGIN
     AND table_name = 'event_guest_lists'
     AND index_name = 'event_guest_lists_promoter_code_uq';
 
-  IF index_exists = 0 THEN
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM (
+    SELECT promoter_code_hash
+    FROM event_guest_lists
+    WHERE promoter_code_hash IS NOT NULL
+    GROUP BY promoter_code_hash
+    HAVING COUNT(*) > 1
+  ) duplicate_promoter_codes;
+
+  IF index_exists = 0 AND secondary_column_exists = 0 THEN
     ALTER TABLE event_guest_lists
       ADD UNIQUE KEY event_guest_lists_promoter_code_uq (promoter_code_hash);
   END IF;
-
-  INSERT INTO event_guest_lists (event_id, name, created_by)
-  SELECT event.id, 'Lista general', event.created_by
-  FROM events event
-  WHERE event.access_mode = 'personal'
-    AND NOT EXISTS (
-      SELECT 1 FROM event_guest_lists guest_list
-      WHERE guest_list.event_id = event.id
-    );
-
-  UPDATE event_guests guest
-  SET guest_list_id = (
-    SELECT MIN(guest_list.id)
-    FROM event_guest_lists guest_list
-    WHERE guest_list.event_id = guest.event_id
-  )
-  WHERE guest.guest_list_id IS NULL;
 
   -- La eliminación del catálogo es lógica: conserva compras, ventas y
   -- auditoría, pero oculta el registro de la operación diaria.
@@ -598,79 +594,18 @@ BEGIN
       ADD COLUMN deleted_at DATETIME NULL AFTER active;
   END IF;
 
-  -- El flujo de compras de NOOX no administra proveedores. En instalaciones
-  -- anteriores se eliminan de forma segura la relación, la columna y la tabla.
-  SELECT COUNT(*) INTO constraint_exists
-  FROM information_schema.table_constraints
-  WHERE constraint_schema = DATABASE()
-    AND table_name = 'purchases'
-    AND constraint_name = 'purchases_supplier_fk'
-    AND constraint_type = 'FOREIGN KEY';
-
-  IF constraint_exists > 0 THEN
-    ALTER TABLE purchases DROP FOREIGN KEY purchases_supplier_fk;
-  END IF;
-
-  SELECT COUNT(*) INTO column_exists
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'purchases'
-    AND column_name = 'supplier_id';
-
-  IF column_exists > 0 THEN
-    ALTER TABLE purchases DROP COLUMN supplier_id;
-  END IF;
-
-  DROP TABLE IF EXISTS suppliers;
-
-  -- users.email -> users.username
+  -- Las instalaciones antiguas pueden conservar users.email. Se agrega la
+  -- credencial username sin renombrar ni reescribir los datos heredados.
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
     AND table_name = 'users'
     AND column_name = 'username';
 
-  SELECT COUNT(*) INTO secondary_column_exists
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'users'
-    AND column_name = 'email';
-
-  IF column_exists = 0 AND secondary_column_exists = 1 THEN
-    UPDATE users
-    SET email = CONCAT('usuario-', id)
-    WHERE email IS NULL OR TRIM(email) = '';
-
-    UPDATE users
-    SET email = CONCAT(LEFT(email, 55), '-', id)
-    WHERE CHAR_LENGTH(email) > 80;
-
-    ALTER TABLE users
-      CHANGE COLUMN email username VARCHAR(80) NOT NULL;
-  ELSEIF column_exists = 0 THEN
+  IF column_exists = 0 THEN
     ALTER TABLE users
       ADD COLUMN username VARCHAR(80) NULL AFTER id;
   END IF;
-
-  -- Completar nombres vacíos, limitar valores heredados y resolver duplicados
-  -- sin eliminar ninguna cuenta.
-  UPDATE users
-  SET username = CONCAT('usuario-', id)
-  WHERE username IS NULL OR TRIM(username) = '';
-
-  UPDATE users
-  SET username = CONCAT(LEFT(username, 55), '-', id)
-  WHERE CHAR_LENGTH(username) > 80;
-
-  UPDATE users duplicate_user
-  INNER JOIN users original_user
-    ON original_user.username = duplicate_user.username
-   AND original_user.id < duplicate_user.id
-  SET duplicate_user.username =
-    CONCAT(LEFT(duplicate_user.username, 55), '-', duplicate_user.id);
-
-  ALTER TABLE users
-    MODIFY COLUMN username VARCHAR(80) NOT NULL;
 
   SELECT COUNT(*) INTO index_exists
   FROM information_schema.statistics
@@ -679,50 +614,31 @@ BEGIN
     AND column_name = 'username'
     AND non_unique = 0;
 
-  IF index_exists = 0 THEN
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM (
+    SELECT username
+    FROM users
+    WHERE username IS NOT NULL
+    GROUP BY username
+    HAVING COUNT(*) > 1
+  ) duplicate_usernames;
+
+  IF index_exists = 0 AND secondary_column_exists = 0 THEN
     ALTER TABLE users
       ADD UNIQUE KEY users_username_uq (username);
   END IF;
 
-  -- login_attempts.email -> login_attempts.username
+  -- Las instalaciones antiguas pueden conservar login_attempts.email.
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
     AND table_name = 'login_attempts'
     AND column_name = 'username';
 
-  SELECT COUNT(*) INTO secondary_column_exists
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'login_attempts'
-    AND column_name = 'email';
-
-  IF column_exists = 0 AND secondary_column_exists = 1 THEN
-    UPDATE login_attempts
-    SET email = 'desconocido'
-    WHERE email IS NULL OR TRIM(email) = '';
-
-    UPDATE login_attempts
-    SET email = LEFT(email, 80)
-    WHERE CHAR_LENGTH(email) > 80;
-
+  IF column_exists = 0 THEN
     ALTER TABLE login_attempts
-      CHANGE COLUMN email username VARCHAR(80) NOT NULL;
-  ELSEIF column_exists = 0 THEN
-    ALTER TABLE login_attempts
-      ADD COLUMN username VARCHAR(80) NOT NULL DEFAULT 'desconocido' AFTER ip_address;
+      ADD COLUMN username VARCHAR(80) NULL AFTER ip_address;
   END IF;
-
-  UPDATE login_attempts
-  SET username = 'desconocido'
-  WHERE username IS NULL OR TRIM(username) = '';
-
-  UPDATE login_attempts
-  SET username = LEFT(username, 80)
-  WHERE CHAR_LENGTH(username) > 80;
-
-  ALTER TABLE login_attempts
-    MODIFY COLUMN username VARCHAR(80) NOT NULL;
 
   SELECT COUNT(*) INTO index_exists
   FROM information_schema.statistics
@@ -735,8 +651,8 @@ BEGIN
       ADD KEY login_attempts_lookup_idx (ip_address, username, attempted_at);
   END IF;
 
-  -- Presentaciones de compra y unidad base de inventario. Las instalaciones
-  -- anteriores equivalen a una presentación de una sola unidad.
+  -- Presentaciones de compra y unidad base de inventario. Las columnas nuevas
+  -- usan valores predeterminados sin reescribir registros anteriores.
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
@@ -759,24 +675,19 @@ BEGIN
       ADD COLUMN units_per_package DECIMAL(14,4) NOT NULL DEFAULT 1 AFTER package_name;
   END IF;
 
-  UPDATE inventory_items
-  SET package_name = CASE unit
-        WHEN 'bottle' THEN 'Botella'
-        WHEN 'liter' THEN 'Litro'
-        WHEN 'kg' THEN 'Kilogramo'
-        WHEN 'portion' THEN 'Porción'
-        ELSE 'Unidad'
-      END
-  WHERE package_name IS NULL OR TRIM(package_name) = '';
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'inventory_items'
+    AND column_name = 'unit'
+    AND LOCATE('''keg''', column_type) > 0;
 
-  UPDATE inventory_items
-  SET units_per_package = 1
-  WHERE units_per_package IS NULL OR units_per_package <= 0;
-
-  ALTER TABLE inventory_items
-    MODIFY COLUMN unit
-      ENUM('unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg')
-      NOT NULL DEFAULT 'unit';
+  IF column_exists = 0 THEN
+    ALTER TABLE inventory_items
+      MODIFY COLUMN unit
+        ENUM('unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg')
+        NOT NULL DEFAULT 'unit';
+  END IF;
 
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns
@@ -811,9 +722,6 @@ BEGIN
       ADD COLUMN target_stock_days SMALLINT UNSIGNED NOT NULL DEFAULT 14 AFTER safety_stock_days;
   END IF;
 
-  UPDATE inventory_items
-  SET target_stock_days = GREATEST(target_stock_days, lead_time_days + safety_stock_days + 1);
-
   -- Las cuentas abiertas reservan inventario físico para impedir que una misma
   -- unidad se asigne simultáneamente a clientes distintos.
   SELECT COUNT(*) INTO column_exists
@@ -827,21 +735,6 @@ BEGIN
       ADD COLUMN reserved_stock DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER current_stock;
   END IF;
 
-  UPDATE inventory_items
-  SET reserved_stock = 0;
-
-  UPDATE inventory_items inventory
-  JOIN (
-    SELECT recipe.inventory_item_id,
-           SUM(recipe.quantity * tab_item.quantity) AS reserved_quantity
-    FROM customer_tabs tab
-    JOIN customer_tab_items tab_item ON tab_item.tab_id = tab.id
-    JOIN product_recipes recipe ON recipe.product_id = tab_item.product_id
-    WHERE tab.status = 'open'
-    GROUP BY recipe.inventory_item_id
-  ) reservations ON reservations.inventory_item_id = inventory.id
-  SET inventory.reserved_stock = GREATEST(0, reservations.reserved_quantity);
-
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
@@ -853,10 +746,6 @@ BEGIN
       ADD COLUMN target_margin DECIMAL(5,4) NOT NULL DEFAULT 0.7000 AFTER tax_rate;
   END IF;
 
-  UPDATE products
-  SET target_margin = 0.7000
-  WHERE target_margin IS NULL OR target_margin < 0.1000 OR target_margin > 0.9500;
-
   SELECT COUNT(*) INTO column_exists
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
@@ -867,18 +756,6 @@ BEGIN
     ALTER TABLE products
       ADD COLUMN image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default-v3.webp' AFTER target_margin;
   END IF;
-
-  UPDATE products
-  SET image_path = '/assets/product-default-v3.webp'
-  WHERE image_path IS NULL
-     OR TRIM(image_path) = ''
-     OR image_path IN (
-       '/assets/product-default.webp',
-       '/assets/product-default-v2.webp'
-     );
-
-  ALTER TABLE products
-    MODIFY COLUMN image_path VARCHAR(255) NOT NULL DEFAULT '/assets/product-default-v3.webp';
 
   SELECT COUNT(*) INTO index_exists
   FROM information_schema.statistics
@@ -933,11 +810,6 @@ BEGIN
   IF column_exists = 0 THEN
     ALTER TABLE purchase_items
       ADD COLUMN package_cost DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER units_per_package;
-
-    UPDATE purchase_items
-    SET package_quantity = quantity,
-        units_per_package = 1,
-        package_cost = unit_cost;
   END IF;
 
   SELECT COUNT(*) INTO index_exists
@@ -951,28 +823,19 @@ BEGIN
       ADD KEY purchase_items_inventory_history_idx (inventory_item_id, id);
   END IF;
 
-  -- Convertir la modalidad mensual heredada a quincenal. La tarifa siempre se
-  -- conserva o se calcula a partir del salario mensual usando 208 horas/mes.
-  ALTER TABLE employees
-    MODIFY COLUMN pay_type
-      ENUM('hourly', 'monthly', 'biweekly') NOT NULL DEFAULT 'hourly';
+  -- Conservar la modalidad mensual heredada y habilitar también quincenal.
+  SELECT COUNT(*) INTO column_exists
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'employees'
+    AND column_name = 'pay_type'
+    AND LOCATE('''biweekly''', column_type) > 0;
 
-  UPDATE employees
-  SET hourly_rate = CASE
-        WHEN pay_type = 'monthly'
-         AND hourly_rate = 0
-         AND monthly_salary > 0
-          THEN ROUND(monthly_salary / 208, 2)
-        ELSE hourly_rate
-      END,
-      pay_type = CASE
-        WHEN pay_type = 'monthly' THEN 'biweekly'
-        ELSE pay_type
-      END;
-
-  ALTER TABLE employees
-    MODIFY COLUMN pay_type
-      ENUM('hourly', 'biweekly') NOT NULL DEFAULT 'hourly';
+  IF column_exists = 0 THEN
+    ALTER TABLE employees
+      MODIFY COLUMN pay_type
+        ENUM('hourly', 'monthly', 'biweekly') NOT NULL DEFAULT 'hourly';
+  END IF;
 
   -- Añadir y proteger la caja asignada por usuario.
   SELECT COUNT(*) INTO column_exists
@@ -986,19 +849,6 @@ BEGIN
       ADD COLUMN assigned_user_id BIGINT UNSIGNED NULL AFTER status;
   END IF;
 
-  UPDATE terminals terminal
-  LEFT JOIN users user_account ON user_account.id = terminal.assigned_user_id
-  SET terminal.assigned_user_id = NULL
-  WHERE terminal.assigned_user_id IS NOT NULL
-    AND user_account.id IS NULL;
-
-  UPDATE terminals duplicate_terminal
-  INNER JOIN terminals original_terminal
-    ON original_terminal.assigned_user_id = duplicate_terminal.assigned_user_id
-   AND original_terminal.id < duplicate_terminal.id
-  SET duplicate_terminal.assigned_user_id = NULL
-  WHERE duplicate_terminal.assigned_user_id IS NOT NULL;
-
   SELECT COUNT(*) INTO index_exists
   FROM information_schema.statistics
   WHERE table_schema = DATABASE()
@@ -1006,7 +856,16 @@ BEGIN
     AND column_name = 'assigned_user_id'
     AND non_unique = 0;
 
-  IF index_exists = 0 THEN
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM (
+    SELECT assigned_user_id
+    FROM terminals
+    WHERE assigned_user_id IS NOT NULL
+    GROUP BY assigned_user_id
+    HAVING COUNT(*) > 1
+  ) duplicate_terminal_users;
+
+  IF index_exists = 0 AND secondary_column_exists = 0 THEN
     ALTER TABLE terminals
       ADD UNIQUE KEY terminals_user_uq (assigned_user_id);
   END IF;
@@ -1019,56 +878,17 @@ BEGIN
     AND referenced_table_name = 'users'
     AND referenced_column_name = 'id';
 
-  IF constraint_exists = 0 THEN
+  SELECT COUNT(*) INTO secondary_column_exists
+  FROM terminals terminal
+  LEFT JOIN users user_account ON user_account.id = terminal.assigned_user_id
+  WHERE terminal.assigned_user_id IS NOT NULL
+    AND user_account.id IS NULL;
+
+  IF constraint_exists = 0 AND secondary_column_exists = 0 THEN
     ALTER TABLE terminals
       ADD CONSTRAINT terminals_user_fk
       FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL;
   END IF;
-
-  -- Solo en una base sin usuarios se crea el acceso inicial. Nunca modifica la
-  -- contraseña ni los datos de una cuenta que ya exista.
-  INSERT INTO users
-    (username, password_hash, full_name, role, status)
-  SELECT
-    'admin',
-    '$2y$12$Fh4SPyFi.FP8EwJxggVMzu2xRC8zbPB1zqYOIsyE7vIBM9NQmyiYO',
-    'Administrador NOOX',
-    'admin',
-    'active'
-  WHERE NOT EXISTS (SELECT 1 FROM users);
-
-  -- Reutilizar primero una caja nominal que esté libre y después crear las
-  -- cajas que falten. El nombre estable permite ejecutar el archivo otra vez.
-  UPDATE terminals terminal
-  INNER JOIN users user_account
-    ON terminal.name = CONCAT('Caja usuario ', user_account.id)
-  LEFT JOIN terminals owned_terminal
-    ON owned_terminal.assigned_user_id = user_account.id
-  SET terminal.assigned_user_id = user_account.id,
-      terminal.status = 'active'
-  WHERE user_account.status = 'active'
-    AND terminal.assigned_user_id IS NULL
-    AND owned_terminal.id IS NULL;
-
-  INSERT INTO terminals
-    (name, location_name, status, assigned_user_id)
-  SELECT
-    CONCAT('Caja usuario ', user_account.id),
-    'Bar principal',
-    'active',
-    user_account.id
-  FROM users user_account
-  WHERE user_account.status = 'active'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM terminals terminal
-      WHERE terminal.assigned_user_id = user_account.id
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM terminals terminal
-      WHERE terminal.name = CONCAT('Caja usuario ', user_account.id)
-    );
 END$$
 
 DELIMITER ;

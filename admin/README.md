@@ -88,58 +88,18 @@ Cada fila representa una persona y genera su propio QR. La carga admite hasta
 confirma desde una vista previa.
 
 La cámara del navegador requiere que `admin.noxpanama.com` se abra mediante
-**HTTPS**. Si la base de datos ya está creada, importe únicamente:
+**HTTPS**. Tanto para una instalación nueva como para actualizar una base ya
+existente, importe únicamente:
 
 ```text
-/home/noxpana/public_html/admin/db/migrate_events_access.sql
+/home/noxpana/public_html/admin/db/schema.sql
 ```
 
-Este instalador independiente es idempotente y solo crea las tablas `events`,
-`event_guest_lists`, `event_guests` y `event_access_log`; no modifica ventas,
-inventario, usuarios, cajas, planilla ni otros datos existentes. Para una
-instalación completamente nueva, `admin/db/schema.sql` ya incluye también estas
-tablas.
-
-Si el módulo de eventos ya estaba instalado antes de agregar las listas por
-promotor, importe únicamente esta actualización:
-
-```text
-/home/noxpana/public_html/admin/db/migrate_guest_lists.sql
-```
-
-La migración conserva todos los tokens y QR existentes, crea una **Lista
-general** por cada evento personal y asigna allí sus invitados actuales. Puede
-ejecutarse más de una vez sin duplicar listas ni columnas.
-
-Al abrir Eventos, el panel también detecta automáticamente una instalación
-anterior e intenta aplicar esta actualización una sola vez. Si el usuario
-MySQL del hosting no tiene permiso para crear o modificar tablas, la API
-responde con una instrucción explícita para importar
-`admin/db/migrate_guest_lists.sql` en lugar de devolver un error 500 genérico.
-
-Para agregar el portal público de promotores a una instalación que ya tiene
-listas, importe:
-
-```text
-/home/noxpana/public_html/admin/db/migrate_promoter_portal.sql
-```
-
-El panel también intenta agregar estas columnas automáticamente al abrir
-Eventos. La migración independiente queda disponible para hostings cuyo usuario
-MySQL no tenga permisos de `ALTER TABLE`.
-
-Para habilitar la eliminación individual, múltiple y el reinicio del
-inventario en una base de datos existente, importe una sola vez (o repítalo sin
-riesgo) el archivo idempotente:
-
-```text
-/home/noxpana/public_html/admin/db/migrate_inventory_deletion.sql
-```
-
-Esta migración agrega `deleted_at` a `inventory_items` y `products`. En bases
-anteriores también crea `reserved_stock` cuando todavía no existe y reconstruye
-su valor desde las cuentas abiertas. No altera la existencia física, compras,
-ventas, cuentas ni auditorías.
+`schema.sql` contiene todas las tablas y actualizaciones estructurales de
+eventos, promotores, inventario, POS, usuarios y planilla. Es idempotente y no
+contiene datos iniciales: no ejecuta `INSERT`, `UPDATE`, `DELETE` ni elimina
+tablas o columnas. En una base existente conserva intactos productos, artículos,
+usuarios, ventas, compras, invitados, cuentas y auditorías.
 
 El POS está optimizado para pantallas táctiles. Antes de agregar productos se
 debe elegir una cuenta abierta, crear una cuenta con el nombre del cliente o
@@ -250,38 +210,11 @@ una opción personalizada. Las unidades de control del artículo incluyen
 piezas, botellas, latas, mililitros, litros, onzas líquidas, gramos,
 kilogramos, porciones, paquetes, cajas y barriles.
 
-## Catálogo base para el mercado panameño
+## Catálogo e inventario inicial
 
-El archivo independiente:
-
-```text
-/home/noxpana/public_html/admin/db/seed_panama_inventory.sql
-```
-
-agrega **222 artículos distribuidos en 45 categorías**, incluyendo cervezas
-nacionales, importadas y artesanales, ron y seco panameño, whisky, vodka,
-ginebra, tequila, mezcal, vinos, champagne, mezcladores, frutas, insumos de
-barra, alimentos, limpieza y cristalería.
-
-El catálogo base no inventa presentaciones ni costos. Todos comienzan sin
-existencias y con `Unidad base` como valor técnico de compatibilidad; la
-presentación y el precio válidos nacen al registrar la primera compra.
-
-Ejecútelo solamente después de `schema.sql`, desde phpMyAdmin o Terminal:
-
-```bash
-mysql -u noxpana_nox_app -p noxpana_noxpa \
-  < /home/noxpana/public_html/admin/db/seed_panama_inventory.sql
-```
-
-El catálogo es idempotente: puede ejecutarse más de una vez y no duplica ni
-reemplaza la identidad de un SKU existente. Solo normaliza a `Unidad base` los
-artículos `PA-` que continúan en cero y no tienen compras ni movimientos; nunca
-modifica registros con historial operativo. Todos los artículos nuevos
-empiezan con existencia, mínimo y costo en cero. Esto evita registrar precios o
-cantidades que no correspondan a las facturas reales.
-Después de importarlo, registre la primera compra desde **Inventario >
-Registrar compra**.
+El instalador no carga artículos ni productos de ejemplo. El catálogo se crea
+exclusivamente desde el panel y las existencias y costos nacen al registrar las
+compras reales en **Inventario > Registrar compra**.
 
 ## Costos, rentabilidad y reposición
 
@@ -372,23 +305,13 @@ En **phpMyAdmin**, importe el único instalador:
 /home/noxpana/public_html/admin/db/schema.sql
 ```
 
-Para cargar el catálogo inicial de seis cervezas con fotografía, precio y
-descuento automático de inventario, importe después:
-
-```text
-/home/noxpana/public_html/admin/db/seed_beer_products.sql
-```
-
-El archivo se puede ejecutar más de una vez. Crea únicamente los artículos
-físicos que falten y actualiza los seis productos del POS sin duplicarlos.
-
 `schema.sql` crea `noxpana_noxpa` si no existe, la selecciona y prepara el
 sistema completo. También sirve para actualizar una instalación existente,
 incluidos los campos de margen, tiempo de entrega, cobertura de inventario y
 la ruta de fotografía de cada producto.
-Puede ejecutarlo más de una vez: conserva los registros, crea las tablas e
-índices que falten y aplica solamente las adaptaciones pendientes de usuarios,
-planilla y cajas.
+Puede ejecutarlo más de una vez: conserva todos los registros y crea únicamente
+las tablas, columnas, índices y relaciones que falten. No carga catálogos,
+productos, usuarios, cajas ni datos de ejemplo.
 
 Para crear la base desde cero mediante Terminal, use una cuenta MySQL con
 permiso para crear bases:
@@ -521,18 +444,11 @@ repositorio.
 
 ## 5. Primer administrador
 
-Si la tabla de usuarios está vacía, `schema.sql` crea automáticamente:
-
-```text
-Usuario: admin
-Contraseña inicial: Nox12345
-```
-
-Cambie esa contraseña inmediatamente después del primer inicio de sesión.
-Si ya existe al menos un usuario, el instalador no crea ni modifica ninguna
-cuenta o contraseña.
-La contraseña se almacena en MySQL mediante un hash seguro, nunca como texto
-legible.
+`schema.sql` no crea usuarios ni contraseñas. En una actualización se conservan
+intactas todas las cuentas existentes. En una instalación completamente nueva,
+cree el primer administrador mediante el procedimiento seguro definido para el
+servidor antes de habilitar el acceso público; las contraseñas deben almacenarse
+siempre con un hash generado por PHP, nunca como texto legible.
 
 ## 6. Permisos
 
@@ -618,18 +534,13 @@ Antes de actualizar:
 4. vuelva a importar `admin/db/schema.sql`;
 5. pruebe `/api/health`, inicio de sesión, una venta y un cierre de caja.
 
-### Actualización automática de instalaciones anteriores
+### Actualización de instalaciones anteriores
 
-El instalador único también:
-
-- convierte el correo existente en nombre de usuario sin borrar la cuenta ni cambiar su contraseña;
-- convierte empleados mensuales a modalidad quincenal conservando o calculando su tarifa por hora;
-- crea una caja individual para cada usuario activo existente.
-
-No es necesario importar por separado los archivos históricos de migración al
-usar el instalador único. Después de actualizar una instalación antigua, el usuario anterior sigue siendo
-el mismo texto que se utilizaba como correo. Inicie sesión con ese valor y use
-**Usuarios > Editar** para cambiarlo, por ejemplo, a `admin`.
+No es necesario importar archivos históricos de migración. El instalador único
+agrega solo la estructura ausente y nunca rellena, transforma o elimina filas.
+Si encuentra datos heredados incompatibles con una relación o índice único,
+conserva esos datos y omite únicamente esa restricción para evitar alterar la
+información existente.
 
 Haga respaldos diarios de la base y pruebe periódicamente una restauración.
 
