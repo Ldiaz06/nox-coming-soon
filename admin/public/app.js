@@ -32,6 +32,11 @@ const state = {
     payload: null,
     preview: null
   },
+  productImport: {
+    fileName: "",
+    payload: null,
+    preview: null
+  },
   qrDownloadName: "noox-acceso.png",
   qrShareUrl: "",
   scanner: {
@@ -316,6 +321,7 @@ async function normalizeProductImage(file) {
 function showLogin() {
   stopEventScanner();
   resetInventoryImport(true);
+  resetProductImport(true);
   state.user = null;
   state.csrf = null;
   $("#app-view").hidden = true;
@@ -852,6 +858,112 @@ async function previewInventoryImport(file) {
   state.inventoryImport = { fileName: file.name, payload, preview };
   $("#inventory-import-file-name").textContent = file.name;
   renderInventoryImportPreview();
+}
+
+function resetProductImport(close = false) {
+  state.productImport = { fileName: "", payload: null, preview: null };
+  const input = $("#product-import-file");
+  if (!input) return;
+  input.value = "";
+  $("#product-import-file-name").textContent = "Formatos admitidos: .xlsx y .xls · máximo 500 productos";
+  $("#product-import-preview").hidden = true;
+  $("#product-import-summary").replaceChildren();
+  $("#product-import-table").replaceChildren();
+  $("#product-import-errors").textContent = "";
+  $("#commit-product-import").disabled = true;
+  $("#commit-product-import").textContent = "Crear productos de venta";
+  if (close) $("#product-import-panel").hidden = true;
+}
+
+function parseProductWorkbook(fileData) {
+  let workbook;
+  try {
+    workbook = window.XLSX.read(fileData, { type: "array", cellDates: false });
+  } catch {
+    throw new Error("No fue posible leer el archivo. Verifique que sea un Excel válido y que no tenga contraseña.");
+  }
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new Error("El archivo no contiene ninguna hoja.");
+  const grid = window.XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    header: 1,
+    defval: "",
+    blankrows: false,
+    raw: true
+  });
+  const headerIndex = grid.findIndex((row) => row.some((value) => String(value ?? "").trim() !== ""));
+  if (headerIndex < 0) throw new Error("La hoja está vacía.");
+  const headers = grid[headerIndex].map((value) => String(value ?? "").trim());
+  const rows = grid.slice(headerIndex + 1).flatMap((source) => {
+    if (!source.some((value) => String(value ?? "").trim() !== "")) return [];
+    const record = {};
+    headers.forEach((header, index) => { if (header) record[header] = source[index] ?? ""; });
+    return [record];
+  });
+  return { sheetCount: workbook.SheetNames.length, sheetName, headers, rows };
+}
+
+function renderProductImportPreview() {
+  const preview = state.productImport.preview;
+  if (!preview) return;
+  const summary = preview.summary;
+  $("#product-import-summary").innerHTML = [
+    ["Productos", summary.products],
+    ["Errores", summary.errors],
+    ["Advertencias", summary.warnings],
+    ["Costo combinado", money.format(summary.totalRecipeCost)],
+    ["Precios combinados", money.format(summary.totalSalePrice)],
+    ["Estado", preview.valid ? "Listo" : "Revisar"]
+  ].map(([label, value]) => `<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
+
+  $("#product-import-table").innerHTML = preview.rows.map((row) => {
+    const hasErrors = row.errors.length > 0;
+    const hasWarnings = row.warnings.length > 0;
+    const rowClass = hasErrors ? "inventory-import-row--error" : (hasWarnings ? "inventory-import-row--warning" : "");
+    const issues = [
+      ...row.errors.map((issue) => `<span>${escapeHtml(issue)}</span>`),
+      ...row.warnings.map((issue) => `<small>${escapeHtml(issue)}</small>`)
+    ].join("") || `<small>${escapeHtml(row.schemaVersion)} · listo para crear</small>`;
+    const recipe = row.components.map((component) => {
+      const label = component.name || component.sku;
+      return `<small><strong>${quantityNumber.format(component.quantity)} ${escapeHtml(unitNames[component.unit] || component.unit || "")}</strong> · ${escapeHtml(label)}</small>`;
+    }).join("");
+    const margin = row.grossMargin === null ? "—" : `${(row.grossMargin * 100).toFixed(1)}%`;
+    return `<tr class="${rowClass}">
+      <td>${row.rowNumber}</td>
+      <td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.sku)}</small></td>
+      <td>${escapeHtml(row.category)}</td>
+      <td><strong>${row.salePrice === null ? "—" : money.format(row.salePrice)}</strong><small>antes de ITBMS</small></td>
+      <td>${row.customerPriceWithTax === null ? "—" : money.format(row.customerPriceWithTax)}<small>${row.taxRate === null ? "" : `${(row.taxRate * 100).toFixed(0)}% ITBMS`}</small></td>
+      <td>${row.recipeCost === null ? "—" : money.format(row.recipeCost)}<small>Margen ${margin} · objetivo ${row.targetMargin === null ? "—" : `${(row.targetMargin * 100).toFixed(0)}%`}</small></td>
+      <td><div class="inventory-import-issues">${recipe}</div></td>
+      <td><div class="inventory-import-issues">${issues}</div></td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="8" class="empty-state">No hay productos para mostrar.</td></tr>';
+
+  const errorsElement = $("#product-import-errors");
+  errorsElement.classList.toggle("is-valid", preview.valid);
+  if (preview.globalErrors?.length) errorsElement.textContent = preview.globalErrors.join(" ");
+  else if (!preview.valid) errorsElement.textContent = `${summary.errors} error${summary.errors === 1 ? "" : "es"} por corregir. No se guardará ningún producto.`;
+  else if (summary.warnings) errorsElement.textContent = `Archivo válido con ${summary.warnings} advertencia${summary.warnings === 1 ? "" : "s"}. Revise los costos resaltados antes de confirmar.`;
+  else errorsElement.textContent = "Todos los productos, precios, márgenes y recetas fueron verificados.";
+  $("#commit-product-import").disabled = !preview.valid;
+  $("#product-import-preview").hidden = false;
+}
+
+async function previewProductImport(file) {
+  if (!/\.(xlsx|xls)$/i.test(file.name)) throw new Error("Seleccione un archivo .xlsx o .xls.");
+  if (file.size > INVENTORY_IMPORT_MAX_FILE_SIZE) throw new Error("El archivo supera el máximo de 5 MB.");
+  $("#product-import-file-name").textContent = `Leyendo y verificando ${file.name}…`;
+  await loadSpreadsheetLibrary();
+  const payload = parseProductWorkbook(await file.arrayBuffer());
+  const preview = await api("/api/inventory/products/import/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeout: 60000
+  });
+  state.productImport = { fileName: file.name, payload, preview };
+  $("#product-import-file-name").textContent = file.name;
+  renderProductImportPreview();
 }
 
 function normalizeSpreadsheetHeader(value) {
@@ -2388,6 +2500,61 @@ $("#print-pos-receipt").addEventListener("click", () => window.print());
 
 $("#show-new-item").addEventListener("click", () => prepareItemForm());
 $("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); prepareProductForm(); });
+$("#show-product-import").addEventListener("click", () => {
+  resetProductImport();
+  $("#product-import-panel").hidden = false;
+  $("#product-import-file").focus();
+});
+$("#close-product-import").addEventListener("click", () => resetProductImport(true));
+$("#clear-product-import").addEventListener("click", () => {
+  resetProductImport();
+  $("#product-import-file").focus();
+});
+$("#product-import-file").addEventListener("change", async (event) => {
+  const file = event.currentTarget.files?.[0];
+  if (!file) return;
+  state.productImport = { fileName: file.name, payload: null, preview: null };
+  $("#product-import-preview").hidden = true;
+  try {
+    await previewProductImport(file);
+  } catch (error) {
+    $("#product-import-file-name").textContent = file.name;
+    toast(error.message, true);
+  }
+});
+$("#commit-product-import").addEventListener("click", async (event) => {
+  const { payload, preview, fileName } = state.productImport;
+  if (!payload || !preview?.valid) return toast("Primero verifique un archivo válido.", true);
+  if (!window.confirm(`Se crearán ${preview.summary.products} productos con sus precios y recetas. ¿Desea continuar?`)) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "Creando productos…";
+  try {
+    const result = await api("/api/inventory/products/import/commit", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      timeout: 120000
+    });
+    resetProductImport(true);
+    state.catalogReady = false;
+    state.pagination.products.page = 1;
+    await loadInventory();
+    toast(`${fileName}: ${result.summary.products} productos creados correctamente.`);
+  } catch (error) {
+    button.textContent = "Crear productos de venta";
+    try {
+      state.productImport.preview = await api("/api/inventory/products/import/preview", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        timeout: 60000
+      });
+      renderProductImportPreview();
+    } catch {
+      button.disabled = false;
+    }
+    toast(error.message, true);
+  }
+});
 $("#show-inventory-import").addEventListener("click", () => {
   resetInventoryImport();
   $("#inventory-import-panel").hidden = false;

@@ -354,11 +354,32 @@
       </section>
 
       <section id="section-products" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO DEL POS</p><h2>Productos de venta</h2></div><div class="heading-actions"><button class="button button--danger" type="button" data-reset-inventory data-roles="admin">Eliminar todo</button><button id="show-new-product" class="button button--primary">Crear producto</button></div></div>
+        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO DEL POS</p><h2>Productos de venta</h2></div><div class="heading-actions"><button class="button button--danger" type="button" data-reset-inventory data-roles="admin">Eliminar todo</button><button id="show-product-import" class="button button--ghost" type="button">Importar Excel</button><button id="show-new-product" class="button button--primary">Crear producto</button></div></div>
         <div class="inventory-concepts">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Lo que se vende</h3><p>Productos visibles en el POS: botellas, tragos, cócteles, cervezas, alimentos y servicios cobrables.</p></div></article>
           <article class="concept-card"><span class="concept-number">02</span><div><h3>Receta automática</h3><p>Cada venta descuenta los artículos y cantidades indicados, calcula el costo y propone un precio rentable.</p></div></article>
         </div>
+        <article id="product-import-panel" class="panel inventory-import-panel" hidden>
+          <div class="panel-heading">
+            <div><p class="eyebrow">IMPORTACIÓN DE PRODUCTOS</p><h3>Verificar precios, márgenes y recetas</h3></div>
+            <button id="close-product-import" class="text-button" type="button">Cerrar</button>
+          </div>
+          <div class="inventory-import-body">
+            <p class="panel-note">La verificación comprueba todos los artículos de cada receta y recalcula el margen con sus costos vigentes. Nada se guarda hasta confirmar.</p>
+            <label class="inventory-import-file">
+              <span aria-hidden="true">⇧</span>
+              <strong>Seleccionar archivo de productos</strong>
+              <small id="product-import-file-name">Formatos admitidos: .xlsx y .xls · máximo 500 productos</small>
+              <input id="product-import-file" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+            </label>
+            <div id="product-import-preview" class="inventory-import-preview" hidden>
+              <div id="product-import-summary" class="inventory-import-summary" aria-live="polite"></div>
+              <div class="table-scroll"><table><thead><tr><th>Fila</th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Precio + ITBMS</th><th>Costo / margen</th><th>Receta</th><th>Verificación</th></tr></thead><tbody id="product-import-table"></tbody></table></div>
+              <p id="product-import-errors" class="inventory-import-errors" role="status"></p>
+              <div class="form-actions"><button id="clear-product-import" class="button button--ghost" type="button">Elegir otro archivo</button><button id="commit-product-import" class="button button--primary" type="button" disabled>Crear productos de venta</button></div>
+            </div>
+          </div>
+        </article>
         <form id="new-product-form" class="panel inline-form" hidden>
           <input name="recordId" type="hidden">
           <div class="form-intro wide-field"><p id="product-form-eyebrow" class="eyebrow">NUEVO PRODUCTO</p><h3 id="product-form-title">Definir composición para el POS</h3><p>Indique cuánto consume una venta. Una cerveza descuenta 1 unidad; un trago puede descontar 50 ml de licor y 1 unidad de mezclador.</p></div>
@@ -567,6 +588,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260829-1" defer></script>
+  <script src="/app.js?v=20260829-2" defer></script>
 </body>
 </html>

@@ -381,6 +381,239 @@ function inventory_import_analyze(PDO $pdo, array $body, bool $lock = false): ar
     ];
 }
 
+function product_import_columns(): array
+{
+    return [
+        'schemaVersion', 'operation', 'productSku', 'productName', 'category', 'barcode', 'active',
+        'taxRate', 'targetMargin', 'minimumPrice', 'roundingIncrement',
+        'component1Sku', 'component1Quantity', 'component1UnitCost',
+        'component2Sku', 'component2Quantity', 'component2UnitCost',
+        'component3Sku', 'component3Quantity', 'component3UnitCost',
+        'estimatedRecipeCost', 'pricingBasisCost', 'salePrice', 'customerPriceWithTax',
+        'estimatedGrossMargin', 'notes', 'taxSourceUrl', 'sourceInventoryFile',
+    ];
+}
+
+function product_import_optional_number($value, float $minimum, float $maximum, string $label, array &$errors): ?float
+{
+    if ($value === null || $value === '') return null;
+    return inventory_import_number($value, $minimum, $maximum, $label, $errors);
+}
+
+function product_import_normalize(array $body): array
+{
+    $requiredColumns = product_import_columns();
+    $headers = $body['headers'] ?? null;
+    $sourceRows = $body['rows'] ?? null;
+    $globalErrors = [];
+    if ((int) ($body['sheetCount'] ?? 0) !== 1) $globalErrors[] = 'El archivo debe contener una sola hoja.';
+    if (!is_array($headers)) {
+        $headers = [];
+        $globalErrors[] = 'No fue posible leer los encabezados del archivo.';
+    }
+    $headers = array_map('inventory_import_text', array_values($headers));
+    foreach ($requiredColumns as $column) {
+        if (!in_array($column, $headers, true)) $globalErrors[] = "Falta la columna obligatoria {$column}.";
+    }
+    if (!is_array($sourceRows) || !$sourceRows) {
+        $sourceRows = [];
+        $globalErrors[] = 'El archivo no contiene productos para importar.';
+    }
+    if (count($sourceRows) > 500) $globalErrors[] = 'El archivo supera el máximo de 500 productos por importación.';
+
+    $rows = [];
+    foreach (array_slice($sourceRows, 0, 500) as $index => $source) {
+        $errors = [];
+        $warnings = [];
+        if (!is_array($source)) {
+            $source = [];
+            $errors[] = 'La fila no tiene un formato válido.';
+        }
+        $schemaVersion = inventory_import_text($source['schemaVersion'] ?? null);
+        $operation = inventory_import_text($source['operation'] ?? null);
+        $sku = inventory_import_text($source['productSku'] ?? null);
+        $name = inventory_import_text($source['productName'] ?? null);
+        $category = inventory_import_text($source['category'] ?? null);
+        $barcode = inventory_import_text($source['barcode'] ?? null);
+        $notes = inventory_import_text($source['notes'] ?? null);
+        if ($schemaVersion !== 'nox_product_import_v1') $errors[] = 'La versión del formato no es compatible.';
+        if ($operation !== 'create') $errors[] = 'La operación debe ser create.';
+        if ($sku === '' || mb_strlen($sku) > 80) $errors[] = 'El SKU del producto es obligatorio y admite hasta 80 caracteres.';
+        if (mb_strlen($name) < 2 || mb_strlen($name) > 180) $errors[] = 'El nombre debe tener entre 2 y 180 caracteres.';
+        if (mb_strlen($category) < 2 || mb_strlen($category) > 100) $errors[] = 'La categoría debe tener entre 2 y 100 caracteres.';
+        if (mb_strlen($barcode) > 120) $errors[] = 'El código de barras admite hasta 120 caracteres.';
+        if (mb_strlen($notes) > 500) $errors[] = 'Las notas admiten hasta 500 caracteres.';
+
+        $active = filter_var($source['active'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($active === null) $errors[] = 'El estado activo no es válido.';
+        $taxRate = inventory_import_number($source['taxRate'] ?? null, 0, 1, 'El impuesto', $errors);
+        $targetMargin = inventory_import_number($source['targetMargin'] ?? null, 0.10, 0.95, 'El margen objetivo', $errors);
+        $minimumPrice = inventory_import_number($source['minimumPrice'] ?? null, 0, 1000000, 'El precio mínimo', $errors);
+        $roundingIncrement = inventory_import_number($source['roundingIncrement'] ?? null, 0.01, 1000, 'El incremento de redondeo', $errors);
+        $estimatedRecipeCost = inventory_import_number($source['estimatedRecipeCost'] ?? null, 0, 1000000, 'El costo estimado', $errors);
+        $pricingBasisCost = inventory_import_number($source['pricingBasisCost'] ?? null, 0, 1000000, 'La base de precio', $errors);
+        $salePrice = inventory_import_number($source['salePrice'] ?? null, 0.01, 1000000, 'El precio de venta', $errors);
+        $customerPriceWithTax = inventory_import_number($source['customerPriceWithTax'] ?? null, 0.01, 1000000, 'El precio con impuesto', $errors);
+        $estimatedGrossMargin = inventory_import_number($source['estimatedGrossMargin'] ?? null, 0, 1, 'El margen estimado', $errors);
+
+        $components = [];
+        for ($componentIndex = 1; $componentIndex <= 3; $componentIndex++) {
+            $componentSku = inventory_import_text($source["component{$componentIndex}Sku"] ?? null);
+            $quantityValue = $source["component{$componentIndex}Quantity"] ?? null;
+            $unitCostValue = $source["component{$componentIndex}UnitCost"] ?? null;
+            if ($componentSku === '' && ($quantityValue === null || $quantityValue === '')) continue;
+            if ($componentSku === '') {
+                $errors[] = "El componente {$componentIndex} necesita un SKU.";
+                continue;
+            }
+            if (mb_strlen($componentSku) > 80) $errors[] = "El SKU del componente {$componentIndex} supera 80 caracteres.";
+            $quantity = inventory_import_number($quantityValue, 0.0001, 1000000, "La cantidad del componente {$componentIndex}", $errors);
+            $fileUnitCost = product_import_optional_number($unitCostValue, 0, 1000000, "El costo del componente {$componentIndex}", $errors);
+            if ($quantity !== null) $components[] = ['sku' => $componentSku, 'quantity' => $quantity, 'fileUnitCost' => $fileUnitCost];
+        }
+        if (!$components) $errors[] = 'La receta debe tener al menos un componente.';
+        $componentKeys = array_map(static fn (array $component): string => mb_strtolower($component['sku']), $components);
+        if (count($componentKeys) !== count(array_unique($componentKeys))) $errors[] = 'La receta repite el mismo artículo.';
+        if ($salePrice !== null && $customerPriceWithTax !== null && $taxRate !== null
+            && abs(money_round($salePrice * (1 + $taxRate)) - money_round($customerPriceWithTax)) > 0.01) {
+            $errors[] = 'El precio final con impuesto no coincide con el precio de venta y la tasa indicada.';
+        }
+
+        $rows[] = [
+            'rowNumber' => $index + 2,
+            'schemaVersion' => $schemaVersion,
+            'operation' => $operation,
+            'sku' => $sku,
+            'name' => $name,
+            'category' => $category,
+            'barcode' => $barcode,
+            'active' => $active,
+            'taxRate' => $taxRate,
+            'targetMargin' => $targetMargin,
+            'minimumPrice' => $minimumPrice,
+            'roundingIncrement' => $roundingIncrement,
+            'estimatedRecipeCost' => $estimatedRecipeCost,
+            'pricingBasisCost' => $pricingBasisCost,
+            'salePrice' => $salePrice,
+            'customerPriceWithTax' => $customerPriceWithTax,
+            'estimatedGrossMargin' => $estimatedGrossMargin,
+            'notes' => $notes,
+            'components' => $components,
+            'recipeCost' => null,
+            'grossMargin' => null,
+            'errors' => $errors,
+            'warnings' => $warnings,
+        ];
+    }
+
+    $seenSkus = [];
+    $seenBarcodes = [];
+    foreach ($rows as &$row) {
+        $skuKey = mb_strtolower($row['sku']);
+        if ($skuKey !== '' && isset($seenSkus[$skuKey])) $row['errors'][] = "El SKU repite la fila {$seenSkus[$skuKey]}.";
+        elseif ($skuKey !== '') $seenSkus[$skuKey] = $row['rowNumber'];
+        $barcodeKey = mb_strtolower($row['barcode']);
+        if ($barcodeKey !== '' && isset($seenBarcodes[$barcodeKey])) $row['errors'][] = "El código de barras repite la fila {$seenBarcodes[$barcodeKey]}.";
+        elseif ($barcodeKey !== '') $seenBarcodes[$barcodeKey] = $row['rowNumber'];
+    }
+    unset($row);
+    return ['rows' => $rows, 'globalErrors' => array_values(array_unique($globalErrors))];
+}
+
+function product_import_analyze(PDO $pdo, array $body, bool $lock = false): array
+{
+    $analysis = product_import_normalize($body);
+    $rows = $analysis['rows'];
+    $componentSkus = [];
+    foreach ($rows as $row) foreach ($row['components'] as $component) $componentSkus[$component['sku']] = true;
+    $itemsBySku = [];
+    if ($componentSkus) {
+        $statement = $pdo->prepare(
+            'SELECT id, sku, name, unit, average_cost AS averageCost
+             FROM inventory_items WHERE active = TRUE AND deleted_at IS NULL
+               AND sku IN (' . placeholders(count($componentSkus)) . ')' . ($lock ? ' FOR UPDATE' : '')
+        );
+        $statement->execute(array_keys($componentSkus));
+        foreach ($statement->fetchAll() as $item) $itemsBySku[mb_strtolower((string) $item['sku'])] = $item;
+    }
+
+    $productSkus = array_values(array_unique(array_filter(array_column($rows, 'sku'))));
+    $barcodes = array_values(array_unique(array_filter(array_column($rows, 'barcode'))));
+    $existingProducts = [];
+    if ($productSkus || $barcodes) {
+        $conditions = [];
+        $values = [];
+        if ($productSkus) {
+            $conditions[] = 'sku IN (' . placeholders(count($productSkus)) . ')';
+            array_push($values, ...$productSkus);
+        }
+        if ($barcodes) {
+            $conditions[] = 'barcode IN (' . placeholders(count($barcodes)) . ')';
+            array_push($values, ...$barcodes);
+        }
+        $statement = $pdo->prepare(
+            'SELECT id, sku, barcode FROM products WHERE (' . implode(' OR ', $conditions) . ')' . ($lock ? ' FOR UPDATE' : '')
+        );
+        $statement->execute($values);
+        foreach ($statement->fetchAll() as $product) {
+            $existingProducts['sku:' . mb_strtolower((string) $product['sku'])] = $product;
+            if ($product['barcode']) $existingProducts['barcode:' . mb_strtolower((string) $product['barcode'])] = $product;
+        }
+    }
+
+    $totalRecipeCost = 0.0;
+    $totalSalePrice = 0.0;
+    foreach ($rows as &$row) {
+        if (isset($existingProducts['sku:' . mb_strtolower($row['sku'])])) $row['errors'][] = 'El SKU del producto ya existe.';
+        if ($row['barcode'] !== '' && isset($existingProducts['barcode:' . mb_strtolower($row['barcode'])])) {
+            $row['errors'][] = 'El código de barras ya existe.';
+        }
+        $recipeCost = 0.0;
+        foreach ($row['components'] as &$component) {
+            $item = $itemsBySku[mb_strtolower($component['sku'])] ?? null;
+            if (!$item) {
+                $row['errors'][] = "No existe el artículo de receta {$component['sku']}. Importe primero el inventario.";
+                continue;
+            }
+            $component['itemId'] = (int) $item['id'];
+            $component['name'] = $item['name'];
+            $component['unit'] = $item['unit'];
+            $component['currentUnitCost'] = (float) $item['averageCost'];
+            $recipeCost += $component['quantity'] * $component['currentUnitCost'];
+        }
+        unset($component);
+        $row['recipeCost'] = money_round($recipeCost);
+        if ($row['salePrice'] !== null && $row['salePrice'] > 0) {
+            $row['grossMargin'] = round(($row['salePrice'] - $row['recipeCost']) / $row['salePrice'], 4);
+        }
+        if ($row['estimatedRecipeCost'] !== null && abs($row['recipeCost'] - $row['estimatedRecipeCost']) > 0.01) {
+            $row['warnings'][] = 'El costo vigente cambió desde que se generó el archivo.';
+        }
+        if ($row['grossMargin'] !== null && $row['targetMargin'] !== null && $row['grossMargin'] + 0.0001 < $row['targetMargin']) {
+            $row['errors'][] = 'El precio ya no alcanza el margen bruto objetivo con el costo vigente.';
+        }
+        $row['errors'] = array_values(array_unique($row['errors']));
+        $row['warnings'] = array_values(array_unique($row['warnings']));
+        $totalRecipeCost += $row['recipeCost'];
+        $totalSalePrice += (float) ($row['salePrice'] ?? 0);
+    }
+    unset($row);
+    $errorCount = array_sum(array_map(static fn (array $row): int => count($row['errors']), $rows));
+    $warningCount = array_sum(array_map(static fn (array $row): int => count($row['warnings']), $rows));
+    return [
+        'valid' => !$analysis['globalErrors'] && $errorCount === 0,
+        'globalErrors' => $analysis['globalErrors'],
+        'rows' => $rows,
+        'summary' => [
+            'products' => count($rows),
+            'errors' => $errorCount + count($analysis['globalErrors']),
+            'warnings' => $warningCount,
+            'totalRecipeCost' => money_round($totalRecipeCost),
+            'totalSalePrice' => money_round($totalSalePrice),
+        ],
+    ];
+}
+
 function catalog_pagination(int $total, int $defaultPerPage = 20, int $maximumPerPage = 100): array
 {
     $perPage = max(6, min((int) ($_GET['perPage'] ?? $defaultPerPage), $maximumPerPage));
@@ -920,6 +1153,85 @@ function inventory_product_create(array $params = [])
     } catch (PDOException $error) {
         if ((string) $error->getCode() === '23000') {
             throw new ApiError('El SKU o código de barras ya existe.', 409);
+        }
+        throw $error;
+    }
+    json_response($result, 201);
+}
+
+function inventory_product_import_preview(array $params = [])
+{
+    require_csrf();
+    require_roles(['admin', 'supervisor']);
+    json_response(product_import_analyze(db(), request_body()));
+}
+
+function inventory_product_import_commit(array $params = [])
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $body = request_body();
+    try {
+        $result = transaction(function (PDO $pdo) use ($user, $body): array {
+            $analysis = product_import_analyze($pdo, $body, true);
+            if (!$analysis['valid']) {
+                $message = $analysis['globalErrors'][0] ?? null;
+                if (!$message) {
+                    foreach ($analysis['rows'] as $row) {
+                        if ($row['errors']) {
+                            $message = "Fila {$row['rowNumber']}: {$row['errors'][0]}";
+                            break;
+                        }
+                    }
+                }
+                throw new ApiError($message ?: 'El archivo cambió o ya no es válido. Vuelva a verificarlo.', 409);
+            }
+
+            $createdIds = [];
+            $productInsert = $pdo->prepare(
+                'INSERT INTO products (sku, barcode, name, category, sale_price, tax_rate, target_margin, active)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $recipeInsert = $pdo->prepare(
+                'INSERT INTO product_recipes (product_id, inventory_item_id, quantity) VALUES (?, ?, ?)'
+            );
+            foreach ($analysis['rows'] as $row) {
+                $productInsert->execute([
+                    $row['sku'], $row['barcode'] !== '' ? $row['barcode'] : null, $row['name'], $row['category'],
+                    $row['salePrice'], $row['taxRate'], $row['targetMargin'], $row['active'] ? 1 : 0,
+                ]);
+                $productId = (int) $pdo->lastInsertId();
+                $createdIds[] = $productId;
+                $auditRecipe = [];
+                foreach ($row['components'] as $component) {
+                    $recipeInsert->execute([$productId, $component['itemId'], $component['quantity']]);
+                    $auditRecipe[] = ['itemId' => $component['itemId'], 'sku' => $component['sku'], 'quantity' => $component['quantity']];
+                }
+                audit_log($pdo, $user, 'create', 'product', $productId, null, [
+                    'source' => 'product_import',
+                    'sku' => $row['sku'],
+                    'name' => $row['name'],
+                    'category' => $row['category'],
+                    'salePrice' => $row['salePrice'],
+                    'taxRate' => $row['taxRate'],
+                    'targetMargin' => $row['targetMargin'],
+                    'active' => $row['active'],
+                    'recipeCost' => $row['recipeCost'],
+                    'grossMargin' => $row['grossMargin'],
+                    'recipe' => $auditRecipe,
+                ]);
+            }
+            $summary = [
+                'products' => count($createdIds),
+                'totalRecipeCost' => $analysis['summary']['totalRecipeCost'],
+                'totalSalePrice' => $analysis['summary']['totalSalePrice'],
+            ];
+            audit_log($pdo, $user, 'import', 'products', null, null, $summary);
+            return ['productIds' => $createdIds, 'summary' => $summary];
+        });
+    } catch (PDOException $error) {
+        if ((string) $error->getCode() === '23000') {
+            throw new ApiError('Un SKU o código de barras fue creado por otra operación. Vuelva a verificar el archivo.', 409);
         }
         throw $error;
     }

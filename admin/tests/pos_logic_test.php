@@ -165,4 +165,65 @@ pos_test_assert(
     'La importación aceptó una fecha inexistente.'
 );
 
+$productImportRow = [
+    'schemaVersion' => 'nox_product_import_v1',
+    'operation' => 'create',
+    'productSku' => 'HBL-TEST',
+    'productName' => 'Highball de prueba',
+    'category' => 'Highballs',
+    'barcode' => '',
+    'active' => true,
+    'taxRate' => 0.10,
+    'targetMargin' => 0.70,
+    'minimumPrice' => 8,
+    'roundingIncrement' => 1,
+    'component1Sku' => 'VOD-TEST',
+    'component1Quantity' => 50,
+    'component1UnitCost' => 0.02,
+    'component2Sku' => 'SODA-TEST',
+    'component2Quantity' => 1,
+    'component2UnitCost' => 0.85,
+    'component3Sku' => '',
+    'component3Quantity' => '',
+    'component3UnitCost' => '',
+    'estimatedRecipeCost' => 1.85,
+    'pricingBasisCost' => 1.85,
+    'salePrice' => 8,
+    'customerPriceWithTax' => 8.80,
+    'estimatedGrossMargin' => 0.7688,
+    'notes' => 'Prueba',
+    'taxSourceUrl' => 'https://dgi.mef.gob.pa/itbms/Itbms',
+    'sourceInventoryFile' => 'inventario.xlsx',
+];
+$normalizedProducts = product_import_normalize([
+    'sheetCount' => 1,
+    'headers' => product_import_columns(),
+    'rows' => [$productImportRow],
+]);
+pos_test_assert(!$normalizedProducts['globalErrors'], 'El formato válido de productos produjo errores globales.');
+pos_test_assert(!$normalizedProducts['rows'][0]['errors'], 'El producto válido de importación fue rechazado.');
+pos_test_assert(count($normalizedProducts['rows'][0]['components']) === 2, 'La receta importada perdió componentes.');
+pos_test_money(8.80, $normalizedProducts['rows'][0]['customerPriceWithTax'], 'El precio final importado cambió.');
+
+$invalidProductImportRow = $productImportRow;
+$invalidProductImportRow['customerPriceWithTax'] = 8.00;
+$invalidProductImportRow['component2Sku'] = 'VOD-TEST';
+$invalidProducts = product_import_normalize([
+    'sheetCount' => 1,
+    'headers' => product_import_columns(),
+    'rows' => [$invalidProductImportRow, $productImportRow],
+]);
+pos_test_assert(
+    in_array('El precio final con impuesto no coincide con el precio de venta y la tasa indicada.', $invalidProducts['rows'][0]['errors'], true),
+    'La importación aceptó un precio final incoherente.'
+);
+pos_test_assert(
+    in_array('La receta repite el mismo artículo.', $invalidProducts['rows'][0]['errors'], true),
+    'La importación aceptó un artículo repetido en la receta.'
+);
+pos_test_assert(
+    in_array('El SKU repite la fila 2.', $invalidProducts['rows'][1]['errors'], true),
+    'La importación no detectó un SKU de producto duplicado.'
+);
+
 echo "POS logic tests: OK\n";

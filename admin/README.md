@@ -220,6 +220,14 @@ existencias y costos promedio. Si una operación falla, no se guarda ninguna
 fila. Las facturas recibidas previamente se rechazan para impedir que el mismo
 archivo duplique el inventario.
 
+En **Productos > Importar Excel** se admite el esquema
+`nox_product_import_v1`. La vista previa verifica que cada artículo de receta
+exista, recalcula el costo con el promedio vigente y bloquea cualquier precio
+que haya quedado por debajo del margen objetivo. La confirmación crea todos los
+productos y sus recetas en una sola transacción; si una fila falla, no se crea
+ningún producto. Los SKU y códigos de barras existentes también se rechazan
+para evitar duplicados.
+
 El formulario de compra incluye paquetes y cajas de distintos tamaños,
 botellas entre 187 ml y 3 L, barriles de 20 a 50 L, presentaciones por peso y
 una opción personalizada. Las unidades de control del artículo incluyen

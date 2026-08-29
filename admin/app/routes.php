@@ -49,6 +49,8 @@ add_route('PATCH', 'inventory/items/{id}', 'inventory_item_update');
 add_route('DELETE', 'inventory/items/{id}', 'inventory_item_delete');
 add_route('GET', 'inventory/products', 'inventory_products');
 add_route('POST', 'inventory/products', 'inventory_product_create');
+add_route('POST', 'inventory/products/import/preview', 'inventory_product_import_preview');
+add_route('POST', 'inventory/products/import/commit', 'inventory_product_import_commit');
 add_route('DELETE', 'inventory/products', 'inventory_products_delete');
 add_route('PATCH', 'inventory/products/{id}', 'inventory_product_update');
 add_route('DELETE', 'inventory/products/{id}', 'inventory_product_delete');
