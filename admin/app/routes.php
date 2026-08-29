@@ -57,6 +57,8 @@ add_route('DELETE', 'inventory/reset', 'inventory_reset');
 add_route('POST', 'inventory/movements', 'inventory_movement_create');
 add_route('GET', 'inventory/movements', 'inventory_movements');
 add_route('POST', 'inventory/purchases', 'inventory_purchase_create');
+add_route('POST', 'inventory/import/preview', 'inventory_import_preview');
+add_route('POST', 'inventory/import/commit', 'inventory_import_commit');
 
 add_route('GET', 'pos/products', 'pos_products');
 add_route('GET', 'pos/tabs', 'pos_tabs');

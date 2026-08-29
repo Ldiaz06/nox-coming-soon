@@ -97,4 +97,72 @@ try {
 }
 pos_test_assert($emptyPackageRejected, 'El artículo aceptó una presentación sin contenido.');
 
+$importRow = [
+    'schemaVersion' => 'nox_inventory_import_v1',
+    'operation' => 'upsert_and_receive',
+    'sku' => 'TEST-001',
+    'name' => 'Artículo de prueba',
+    'category' => 'Otros artículos',
+    'unit' => 'bottle',
+    'packageName' => 'Botella de 750 ml',
+    'unitsPerPackage' => 1,
+    'minimumStock' => 2,
+    'leadTimeDays' => 3,
+    'safetyStockDays' => 2,
+    'targetStockDays' => 14,
+    'invoiceNumber' => 'FAC-TEST-1',
+    'purchasedAt' => '2026-08-28',
+    'packageQuantity' => 3,
+    'packageCost' => 12.50,
+    'notes' => 'Prueba',
+];
+$normalizedImport = inventory_import_normalize([
+    'sheetCount' => 1,
+    'headers' => inventory_import_columns(),
+    'rows' => [$importRow],
+]);
+pos_test_assert(!$normalizedImport['globalErrors'], 'El formato válido de importación produjo errores globales.');
+pos_test_assert(!$normalizedImport['rows'][0]['errors'], 'La fila válida de importación fue rechazada.');
+pos_test_money(37.50, $normalizedImport['rows'][0]['lineTotal'], 'El total de la fila importada no coincide.');
+pos_test_assert($normalizedImport['rows'][0]['purchasedAt'] === '2026-08-28', 'La fecha importada cambió.');
+
+$duplicateImport = inventory_import_normalize([
+    'sheetCount' => 1,
+    'headers' => inventory_import_columns(),
+    'rows' => [$importRow, $importRow],
+]);
+pos_test_assert(
+    in_array('La factura ya incluye este SKU en la fila 2.', $duplicateImport['rows'][1]['errors'], true),
+    'La importación no detectó una línea duplicada en la misma factura.'
+);
+
+$secondInvoiceLine = $importRow;
+$secondInvoiceLine['sku'] = 'TEST-002';
+$secondInvoiceLine['name'] = 'Segundo artículo';
+$secondInvoiceLine['notes'] = 'Promoción distinta para esta línea';
+$differentLineNotes = inventory_import_normalize([
+    'sheetCount' => 1,
+    'headers' => inventory_import_columns(),
+    'rows' => [$importRow, $secondInvoiceLine],
+]);
+pos_test_assert(!$differentLineNotes['rows'][1]['errors'], 'La importación rechazó notas distintas dentro de una factura.');
+
+$invalidImportRow = $importRow;
+$invalidImportRow['targetStockDays'] = 5;
+$invalidImportRow['purchasedAt'] = '2026-02-31';
+$invalidImport = inventory_import_normalize([
+    'sheetCount' => 2,
+    'headers' => array_values(array_diff(inventory_import_columns(), ['sku'])),
+    'rows' => [$invalidImportRow],
+]);
+pos_test_assert(count($invalidImport['globalErrors']) === 2, 'No se detectaron la hoja adicional y el encabezado faltante.');
+pos_test_assert(
+    in_array('La cobertura objetivo debe superar la entrega más los días de seguridad.', $invalidImport['rows'][0]['errors'], true),
+    'La importación aceptó una cobertura objetivo inválida.'
+);
+pos_test_assert(
+    in_array('La fecha de compra no es válida.', $invalidImport['rows'][0]['errors'], true),
+    'La importación aceptó una fecha inexistente.'
+);
+
 echo "POS logic tests: OK\n";

@@ -205,6 +205,21 @@ recalcula el costo promedio ponderado y conserva la factura histórica. En la
 siguiente compra muestra la última presentación y precio como una
 referencia editable; nunca impide registrar condiciones distintas.
 
+### Importación de inventario desde Excel
+
+En **Inventario > Importar Excel** se admite un archivo `.xlsx` o `.xls` de una
+sola hoja con el esquema `nox_inventory_import_v1`. El sistema primero lee y
+verifica todas las filas sin modificar la base de datos. La vista previa indica
+qué SKU creará un artículo, cuál reutilizará uno existente, los totales por
+factura y cualquier error o advertencia.
+
+La confirmación solo se habilita cuando no existen errores. Al confirmar, todas
+las filas se guardan en una única transacción: se crean los artículos faltantes,
+se registran las facturas, se reciben las presentaciones y se recalculan las
+existencias y costos promedio. Si una operación falla, no se guarda ninguna
+fila. Las facturas recibidas previamente se rechazan para impedir que el mismo
+archivo duplique el inventario.
+
 El formulario de compra incluye paquetes y cajas de distintos tamaños,
 botellas entre 187 ml y 3 L, barriles de 20 a 50 L, presentaciones por peso y
 una opción personalizada. Las unidades de control del artículo incluyen

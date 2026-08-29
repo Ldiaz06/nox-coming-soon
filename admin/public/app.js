@@ -27,6 +27,11 @@ const state = {
     rows: [],
     errors: []
   },
+  inventoryImport: {
+    fileName: "",
+    payload: null,
+    preview: null
+  },
   qrDownloadName: "noox-acceso.png",
   qrShareUrl: "",
   scanner: {
@@ -57,6 +62,7 @@ const state = {
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const inventoryCost = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const dateTime = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Panama" });
 const dateOnly = new Intl.DateTimeFormat("es-PA", { dateStyle: "medium", timeZone: "America/Panama" });
 const roleNames = { admin: "Administrador", supervisor: "Supervisor", cashier: "Cajero" };
@@ -309,6 +315,7 @@ async function normalizeProductImage(file) {
 
 function showLogin() {
   stopEventScanner();
+  resetInventoryImport(true);
   state.user = null;
   state.csrf = null;
   $("#app-view").hidden = true;
@@ -716,6 +723,135 @@ function loadSpreadsheetLibrary() {
     throw error;
   });
   return spreadsheetLibraryPromise;
+}
+
+const INVENTORY_IMPORT_MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+function resetInventoryImport(close = false) {
+  state.inventoryImport = { fileName: "", payload: null, preview: null };
+  const input = $("#inventory-import-file");
+  if (!input) return;
+  input.value = "";
+  $("#inventory-import-file-name").textContent = "Formatos admitidos: .xlsx y .xls · máximo 500 filas";
+  $("#inventory-import-preview").hidden = true;
+  $("#inventory-import-summary").replaceChildren();
+  $("#inventory-import-table").replaceChildren();
+  $("#inventory-import-errors").textContent = "";
+  $("#commit-inventory-import").disabled = true;
+  if (close) $("#inventory-import-panel").hidden = true;
+}
+
+function inventoryImportCellValue(value, header) {
+  if (header === "purchasedAt" && typeof value === "number") {
+    const parsed = window.XLSX.SSF.parse_date_code(value);
+    if (parsed) return `${String(parsed.y).padStart(4, "0")}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return value ?? "";
+}
+
+function parseInventoryWorkbook(fileData) {
+  let workbook;
+  try {
+    workbook = window.XLSX.read(fileData, { type: "array", cellDates: false });
+  } catch {
+    throw new Error("No fue posible leer el archivo. Verifique que sea un Excel válido y que no tenga contraseña.");
+  }
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new Error("El archivo no contiene ninguna hoja.");
+  const grid = window.XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    header: 1,
+    defval: "",
+    blankrows: false,
+    raw: true
+  });
+  const headerIndex = grid.findIndex((row) => row.some((value) => String(value ?? "").trim() !== ""));
+  if (headerIndex < 0) throw new Error("La hoja está vacía.");
+  const headers = grid[headerIndex].map((value) => String(value ?? "").trim());
+  const rows = grid.slice(headerIndex + 1).flatMap((source) => {
+    if (!source.some((value) => String(value ?? "").trim() !== "")) return [];
+    const record = {};
+    headers.forEach((header, index) => {
+      if (header) record[header] = inventoryImportCellValue(source[index], header);
+    });
+    return [record];
+  });
+  return { sheetCount: workbook.SheetNames.length, sheetName, headers, rows };
+}
+
+function renderInventoryImportPreview() {
+  const preview = state.inventoryImport.preview;
+  if (!preview) return;
+  const summary = preview.summary;
+  $("#inventory-import-summary").innerHTML = [
+    ["Filas", summary.rows],
+    ["Facturas", summary.invoices],
+    ["Artículos nuevos", summary.newItems],
+    ["Artículos existentes", summary.existingItems],
+    ["Advertencias", summary.warnings],
+    ["Total de compras", money.format(summary.total)]
+  ].map(([label, value]) => `<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
+
+  $("#inventory-import-table").innerHTML = preview.rows.map((row) => {
+    const hasErrors = row.errors.length > 0;
+    const hasWarnings = row.warnings.length > 0;
+    const rowClass = hasErrors ? "inventory-import-row--error" : (hasWarnings ? "inventory-import-row--warning" : "");
+    const statusClass = hasErrors ? "is-error" : (row.action === "create" ? "is-new" : "");
+    const status = hasErrors ? "Revisar" : (row.action === "create" ? "Crear artículo" : "Actualizar stock");
+    const issues = [
+      ...row.errors.map((issue) => `<span>${escapeHtml(issue)}</span>`),
+      ...row.warnings.map((issue) => `<small>${escapeHtml(issue)}</small>`)
+    ].join("") || `<small>${escapeHtml(row.schemaVersion)} · ${escapeHtml(row.operation)}</small>`;
+    return `<tr class="${rowClass}">
+      <td>${row.rowNumber}</td>
+      <td><span class="inventory-import-status ${statusClass}">${status}</span></td>
+      <td><strong>${escapeHtml(row.invoiceNumber)}</strong><small>${escapeHtml(row.purchasedAt || "Fecha inválida")}</small></td>
+      <td><strong>${escapeHtml(row.sku)}</strong><small>${escapeHtml(row.name)} · ${escapeHtml(row.category)}</small></td>
+      <td><strong>${escapeHtml(row.packageName)}</strong><small>${quantityNumber.format(Number(row.unitsPerPackage || 0))} ${escapeHtml(unitNames[row.unit] || row.unit || "")}</small></td>
+      <td><small>Mín. ${quantityNumber.format(Number(row.minimumStock || 0))} · entrega ${row.leadTimeDays ?? "—"} d<br>Seguridad ${row.safetyStockDays ?? "—"} d · objetivo ${row.targetStockDays ?? "—"} d</small></td>
+      <td>${quantityNumber.format(Number(row.packageQuantity || 0))}</td>
+      <td>${row.packageCost === null ? "—" : inventoryCost.format(row.packageCost)}</td>
+      <td><strong>${row.lineTotal === null ? "—" : money.format(row.lineTotal)}</strong></td>
+      <td><small>${escapeHtml(row.notes || "—")}</small></td>
+      <td><div class="inventory-import-issues">${issues}</div></td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="11" class="empty-state">No hay filas para mostrar.</td></tr>';
+
+  const errorsElement = $("#inventory-import-errors");
+  const globalErrors = preview.globalErrors || [];
+  errorsElement.classList.toggle("is-valid", preview.valid);
+  if (globalErrors.length) {
+    errorsElement.textContent = globalErrors.join(" ");
+  } else if (!preview.valid) {
+    errorsElement.textContent = `${summary.errors} error${summary.errors === 1 ? "" : "es"} por corregir. No se guardará ningún dato.`;
+  } else if (summary.warnings) {
+    errorsElement.textContent = `Archivo válido con ${summary.warnings} advertencia${summary.warnings === 1 ? "" : "s"}. Revise las filas resaltadas antes de confirmar.`;
+  } else {
+    errorsElement.textContent = "Todos los datos fueron verificados. Puede confirmar la importación.";
+  }
+  $("#commit-inventory-import").disabled = !preview.valid;
+  $("#inventory-import-preview").hidden = false;
+}
+
+async function previewInventoryImport(file) {
+  if (!/\.(xlsx|xls)$/i.test(file.name)) throw new Error("Seleccione un archivo .xlsx o .xls.");
+  if (file.size > INVENTORY_IMPORT_MAX_FILE_SIZE) throw new Error("El archivo supera el máximo de 5 MB.");
+  $("#inventory-import-file-name").textContent = `Leyendo y verificando ${file.name}…`;
+  await loadSpreadsheetLibrary();
+  const payload = parseInventoryWorkbook(await file.arrayBuffer());
+  const preview = await api("/api/inventory/import/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeout: 60000
+  });
+  state.inventoryImport = { fileName: file.name, payload, preview };
+  $("#inventory-import-file-name").textContent = file.name;
+  renderInventoryImportPreview();
 }
 
 function normalizeSpreadsheetHeader(value) {
@@ -2252,6 +2388,62 @@ $("#print-pos-receipt").addEventListener("click", () => window.print());
 
 $("#show-new-item").addEventListener("click", () => prepareItemForm());
 $("#show-new-product").addEventListener("click", () => { if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true); prepareProductForm(); });
+$("#show-inventory-import").addEventListener("click", () => {
+  resetInventoryImport();
+  $("#inventory-import-panel").hidden = false;
+  $("#inventory-import-file").focus();
+});
+$("#close-inventory-import").addEventListener("click", () => resetInventoryImport(true));
+$("#clear-inventory-import").addEventListener("click", () => {
+  resetInventoryImport();
+  $("#inventory-import-file").focus();
+});
+$("#inventory-import-file").addEventListener("change", async (event) => {
+  const file = event.currentTarget.files?.[0];
+  if (!file) return;
+  state.inventoryImport = { fileName: file.name, payload: null, preview: null };
+  $("#inventory-import-preview").hidden = true;
+  try {
+    await previewInventoryImport(file);
+  } catch (error) {
+    $("#inventory-import-file-name").textContent = file.name;
+    toast(error.message, true);
+  }
+});
+$("#commit-inventory-import").addEventListener("click", async (event) => {
+  const { payload, preview, fileName } = state.inventoryImport;
+  if (!payload || !preview?.valid) return toast("Primero verifique un archivo válido.", true);
+  if (!window.confirm(`Se crearán ${preview.summary.newItems} artículos y se recibirán ${preview.summary.invoices} facturas por ${money.format(preview.summary.total)}. ¿Desea continuar?`)) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "Guardando toda la importación…";
+  try {
+    const result = await api("/api/inventory/import/commit", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      timeout: 120000
+    });
+    resetInventoryImport(true);
+    state.catalogReady = false;
+    state.pagination.inventory.page = 1;
+    state.pagination.articles.page = 1;
+    await loadInventory();
+    toast(`${fileName}: ${result.summary.rows} filas importadas, ${result.summary.newItems} artículos creados y ${result.summary.invoices} facturas recibidas.`);
+  } catch (error) {
+    button.textContent = "Crear artículos y actualizar inventario";
+    try {
+      state.inventoryImport.preview = await api("/api/inventory/import/preview", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        timeout: 60000
+      });
+      renderInventoryImportPreview();
+    } catch {
+      button.disabled = false;
+    }
+    toast(error.message, true);
+  }
+});
 $("#show-purchase").addEventListener("click", () => {
   if (!state.inventory.length) return toast("Primero cree al menos un artículo físico.", true);
   const form = $("#purchase-form");

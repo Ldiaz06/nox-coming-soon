@@ -293,11 +293,32 @@
       </section>
 
       <section id="section-inventory" class="page-section" hidden>
-        <div class="section-heading"><div><p class="eyebrow">EXISTENCIAS</p><h2>Inventario</h2></div><div class="heading-actions"><button id="reset-inventory" class="button button--danger" type="button" data-roles="admin">Eliminar todo</button><button id="show-purchase" class="button button--primary">Registrar compra</button></div></div>
+        <div class="section-heading"><div><p class="eyebrow">EXISTENCIAS</p><h2>Inventario</h2></div><div class="heading-actions"><button id="reset-inventory" class="button button--danger" type="button" data-roles="admin">Eliminar todo</button><button id="show-inventory-import" class="button button--ghost" type="button">Importar Excel</button><button id="show-purchase" class="button button--primary">Registrar compra</button></div></div>
         <div class="inventory-concepts" aria-label="Diferencia entre artículos y productos">
           <article class="concept-card"><span class="concept-number">01</span><div><h3>Existencias reales</h3><p>Consulte cantidades, costos, mínimos y cobertura de todos los artículos almacenados.</p></div></article>
           <article class="concept-card"><span class="concept-number">02</span><div><h3>Entradas y ajustes</h3><p>Registre compras por presentación y use Ajustar para conteos físicos, mermas o correcciones.</p></div></article>
         </div>
+        <article id="inventory-import-panel" class="panel inventory-import-panel" hidden>
+          <div class="panel-heading">
+            <div><p class="eyebrow">IMPORTACIÓN CONTROLADA</p><h3>Verificar antes de actualizar el inventario</h3></div>
+            <button id="close-inventory-import" class="text-button" type="button">Cerrar</button>
+          </div>
+          <div class="inventory-import-body">
+            <p class="panel-note">Seleccione el archivo de una sola hoja. Nada se guarda durante la verificación; la creación de artículos y las entradas de inventario ocurren únicamente al confirmar.</p>
+            <label class="inventory-import-file">
+              <span aria-hidden="true">⇧</span>
+              <strong>Seleccionar archivo de inventario</strong>
+              <small id="inventory-import-file-name">Formatos admitidos: .xlsx y .xls · máximo 500 filas</small>
+              <input id="inventory-import-file" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+            </label>
+            <div id="inventory-import-preview" class="inventory-import-preview" hidden>
+              <div id="inventory-import-summary" class="inventory-import-summary" aria-live="polite"></div>
+              <div class="table-scroll"><table><thead><tr><th>Fila</th><th>Resultado</th><th>Factura</th><th>SKU / artículo</th><th>Presentación</th><th>Configuración</th><th>Cantidad</th><th>Costo</th><th>Total</th><th>Notas</th><th>Verificación</th></tr></thead><tbody id="inventory-import-table"></tbody></table></div>
+              <p id="inventory-import-errors" class="inventory-import-errors" role="status"></p>
+              <div class="form-actions"><button id="clear-inventory-import" class="button button--ghost" type="button">Elegir otro archivo</button><button id="commit-inventory-import" class="button button--primary" type="button" disabled>Crear artículos y actualizar inventario</button></div>
+            </div>
+          </div>
+        </article>
         <form id="purchase-form" class="panel inline-form" hidden>
           <div class="form-intro wide-field"><p class="eyebrow">RECEPCIÓN</p><h3>Registrar compra por presentación</h3><p>Introduzca la factura, la presentación recibida y el precio realmente pagado. La referencia de la compra anterior es solo una ayuda y siempre puede modificarse.</p></div>
           <label>Factura<input name="invoiceNumber" maxlength="100"></label><label>Fecha y hora<input name="purchasedAt" type="datetime-local" required></label><label class="wide-field">Notas<input name="notes" maxlength="500"></label>
@@ -546,6 +567,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/jsqr/jsQR.js?v=1.4.0" defer></script>
   <script src="/vendor/qrcodejs/qrcode.min.js?v=1.0.0" defer></script>
-  <script src="/app.js?v=20260828-3" defer></script>
+  <script src="/app.js?v=20260829-1" defer></script>
 </body>
 </html>

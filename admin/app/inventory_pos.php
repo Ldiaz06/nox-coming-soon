@@ -99,6 +99,288 @@ function inventory_purchase_conversion(float $packageQuantity, float $unitsPerPa
     ];
 }
 
+function inventory_import_columns(): array
+{
+    return [
+        'schemaVersion', 'operation', 'sku', 'name', 'category', 'unit',
+        'packageName', 'unitsPerPackage', 'minimumStock', 'leadTimeDays',
+        'safetyStockDays', 'targetStockDays', 'invoiceNumber', 'purchasedAt',
+        'packageQuantity', 'packageCost', 'notes',
+    ];
+}
+
+function inventory_import_text($value): string
+{
+    return trim(preg_replace('/\s+/u', ' ', (string) ($value ?? '')) ?? '');
+}
+
+function inventory_import_number($value, float $minimum, float $maximum, string $label, array &$errors): ?float
+{
+    if (!is_numeric($value)) {
+        $errors[] = "{$label} debe ser numérico.";
+        return null;
+    }
+    $number = (float) $value;
+    if (!is_finite($number) || $number < $minimum || $number > $maximum) {
+        $errors[] = "{$label} está fuera del rango permitido.";
+        return null;
+    }
+    return $number;
+}
+
+function inventory_import_integer($value, int $minimum, int $maximum, string $label, array &$errors): ?int
+{
+    $number = inventory_import_number($value, $minimum, $maximum, $label, $errors);
+    if ($number === null) return null;
+    if (abs($number - round($number)) > 0.000001) {
+        $errors[] = "{$label} debe ser un número entero.";
+        return null;
+    }
+    return (int) round($number);
+}
+
+function inventory_import_date($value, array &$errors): ?string
+{
+    $source = inventory_import_text($value);
+    if ($source === '') {
+        $errors[] = 'La fecha de compra es obligatoria.';
+        return null;
+    }
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $source, $parts)
+        || !checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
+        $errors[] = 'La fecha de compra no es válida.';
+        return null;
+    }
+    return $source;
+}
+
+function inventory_import_normalize(array $body): array
+{
+    $requiredColumns = inventory_import_columns();
+    $headers = $body['headers'] ?? null;
+    $sourceRows = $body['rows'] ?? null;
+    $globalErrors = [];
+    if ((int) ($body['sheetCount'] ?? 0) !== 1) {
+        $globalErrors[] = 'El archivo debe contener una sola hoja.';
+    }
+    if (!is_array($headers)) {
+        $globalErrors[] = 'No fue posible leer los encabezados del archivo.';
+        $headers = [];
+    }
+    $headers = array_map('inventory_import_text', array_values($headers));
+    foreach ($requiredColumns as $column) {
+        if (!in_array($column, $headers, true)) {
+            $globalErrors[] = "Falta la columna obligatoria {$column}.";
+        }
+    }
+    if (!is_array($sourceRows) || !$sourceRows) {
+        $globalErrors[] = 'El archivo no contiene artículos para importar.';
+        $sourceRows = [];
+    }
+    if (count($sourceRows) > 500) {
+        $globalErrors[] = 'El archivo supera el máximo de 500 filas por importación.';
+    }
+
+    $allowedUnits = ['unit', 'bottle', 'can', 'ml', 'liter', 'fluid_ounce', 'gram', 'kg', 'portion', 'pack', 'case', 'keg'];
+    $rows = [];
+    foreach (array_slice($sourceRows, 0, 500) as $index => $source) {
+        $errors = [];
+        $warnings = [];
+        if (!is_array($source)) {
+            $source = [];
+            $errors[] = 'La fila no tiene un formato válido.';
+        }
+        $rowNumber = $index + 2;
+        $schemaVersion = inventory_import_text($source['schemaVersion'] ?? null);
+        $operation = inventory_import_text($source['operation'] ?? null);
+        $sku = inventory_import_text($source['sku'] ?? null);
+        $name = inventory_import_text($source['name'] ?? null);
+        $category = inventory_import_text($source['category'] ?? null);
+        $unit = inventory_import_text($source['unit'] ?? null);
+        $packageName = inventory_import_text($source['packageName'] ?? null);
+        $invoiceNumber = inventory_import_text($source['invoiceNumber'] ?? null);
+        $notes = inventory_import_text($source['notes'] ?? null);
+
+        if ($schemaVersion !== 'nox_inventory_import_v1') $errors[] = 'La versión del formato no es compatible.';
+        if ($operation !== 'upsert_and_receive') $errors[] = 'La operación debe ser upsert_and_receive.';
+        if ($sku === '' || mb_strlen($sku) > 80) $errors[] = 'El SKU es obligatorio y admite hasta 80 caracteres.';
+        if (mb_strlen($name) < 2 || mb_strlen($name) > 180) $errors[] = 'El nombre debe tener entre 2 y 180 caracteres.';
+        if (mb_strlen($category) < 2 || mb_strlen($category) > 100) $errors[] = 'La categoría debe tener entre 2 y 100 caracteres.';
+        if (!in_array($unit, $allowedUnits, true)) $errors[] = 'La unidad de control no es válida.';
+        if ($packageName === '' || mb_strlen($packageName) > 80) $errors[] = 'La presentación es obligatoria y admite hasta 80 caracteres.';
+        if ($invoiceNumber === '' || mb_strlen($invoiceNumber) > 100) $errors[] = 'El número de factura es obligatorio y admite hasta 100 caracteres.';
+        if (mb_strlen($notes) > 500) $errors[] = 'Las notas admiten hasta 500 caracteres.';
+
+        $unitsPerPackage = inventory_import_number($source['unitsPerPackage'] ?? null, 0.0001, 1000000, 'El contenido por presentación', $errors);
+        $minimumStock = inventory_import_number($source['minimumStock'] ?? null, 0, 1000000000, 'El stock mínimo', $errors);
+        $leadTimeDays = inventory_import_integer($source['leadTimeDays'] ?? null, 0, 365, 'El tiempo de entrega', $errors);
+        $safetyStockDays = inventory_import_integer($source['safetyStockDays'] ?? null, 0, 365, 'El stock de seguridad', $errors);
+        $targetStockDays = inventory_import_integer($source['targetStockDays'] ?? null, 1, 730, 'La cobertura objetivo', $errors);
+        $packageQuantity = inventory_import_integer($source['packageQuantity'] ?? null, 1, 1000000, 'La cantidad de presentaciones', $errors);
+        $packageCost = inventory_import_number($source['packageCost'] ?? null, 0, 1000000000, 'El costo por presentación', $errors);
+        $purchasedAt = inventory_import_date($source['purchasedAt'] ?? null, $errors);
+        if ($leadTimeDays !== null && $safetyStockDays !== null && $targetStockDays !== null
+            && $targetStockDays <= $leadTimeDays + $safetyStockDays) {
+            $errors[] = 'La cobertura objetivo debe superar la entrega más los días de seguridad.';
+        }
+
+        $rows[] = [
+            'rowNumber' => $rowNumber,
+            'schemaVersion' => $schemaVersion,
+            'operation' => $operation,
+            'sku' => $sku,
+            'name' => $name,
+            'category' => $category,
+            'unit' => $unit,
+            'packageName' => $packageName,
+            'unitsPerPackage' => $unitsPerPackage,
+            'minimumStock' => $minimumStock,
+            'leadTimeDays' => $leadTimeDays,
+            'safetyStockDays' => $safetyStockDays,
+            'targetStockDays' => $targetStockDays,
+            'invoiceNumber' => $invoiceNumber,
+            'purchasedAt' => $purchasedAt,
+            'packageQuantity' => $packageQuantity,
+            'packageCost' => $packageCost,
+            'notes' => $notes,
+            'lineTotal' => $packageQuantity !== null && $packageCost !== null
+                ? money_round($packageQuantity * $packageCost)
+                : null,
+            'action' => null,
+            'itemId' => null,
+            'errors' => $errors,
+            'warnings' => $warnings,
+        ];
+    }
+
+    $skuDefinitions = [];
+    $invoiceDates = [];
+    $lineKeys = [];
+    foreach ($rows as &$row) {
+        if ($row['sku'] !== '') {
+            $skuKey = mb_strtolower($row['sku']);
+            $definition = json_encode(array_intersect_key($row, array_flip([
+                'name', 'category', 'unit', 'packageName', 'unitsPerPackage', 'minimumStock',
+                'leadTimeDays', 'safetyStockDays', 'targetStockDays',
+            ])), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            if (isset($skuDefinitions[$skuKey]) && $skuDefinitions[$skuKey] !== $definition) {
+                $row['errors'][] = 'El mismo SKU aparece con una definición de artículo diferente.';
+            } else {
+                $skuDefinitions[$skuKey] = $definition;
+            }
+        }
+        if ($row['invoiceNumber'] !== '') {
+            $invoiceKey = mb_strtolower($row['invoiceNumber']);
+            if (isset($invoiceDates[$invoiceKey]) && $invoiceDates[$invoiceKey] !== $row['purchasedAt']) {
+                $row['errors'][] = 'La misma factura aparece con fechas diferentes.';
+            } else {
+                $invoiceDates[$invoiceKey] = $row['purchasedAt'];
+            }
+            $lineKey = $invoiceKey . "\0" . mb_strtolower($row['sku']);
+            if (isset($lineKeys[$lineKey])) {
+                $row['errors'][] = "La factura ya incluye este SKU en la fila {$lineKeys[$lineKey]}.";
+            } else {
+                $lineKeys[$lineKey] = $row['rowNumber'];
+            }
+        }
+    }
+    unset($row);
+    return ['rows' => $rows, 'globalErrors' => array_values(array_unique($globalErrors))];
+}
+
+function inventory_import_analyze(PDO $pdo, array $body, bool $lock = false): array
+{
+    $analysis = inventory_import_normalize($body);
+    $rows = $analysis['rows'];
+    $validSkus = array_values(array_unique(array_filter(array_column($rows, 'sku'))));
+    $itemsBySku = [];
+    if ($validSkus) {
+        $statement = $pdo->prepare(
+            'SELECT id, sku, name, category, unit, package_name AS packageName,
+                    units_per_package AS unitsPerPackage, current_stock AS currentStock,
+                    average_cost AS averageCost, active, deleted_at AS deletedAt
+             FROM inventory_items WHERE sku IN (' . placeholders(count($validSkus)) . ')' . ($lock ? ' FOR UPDATE' : '')
+        );
+        $statement->execute($validSkus);
+        foreach ($statement->fetchAll() as $item) $itemsBySku[mb_strtolower((string) $item['sku'])] = $item;
+    }
+
+    $invoices = array_values(array_unique(array_filter(array_column($rows, 'invoiceNumber'))));
+    $existingInvoices = [];
+    if ($invoices) {
+        $statement = $pdo->prepare(
+            "SELECT invoice_number FROM purchases
+             WHERE invoice_number IN (" . placeholders(count($invoices)) . ") AND status <> 'void'" . ($lock ? ' FOR UPDATE' : '')
+        );
+        $statement->execute($invoices);
+        foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $invoice) $existingInvoices[mb_strtolower((string) $invoice)] = true;
+    }
+
+    $newSkus = [];
+    $existingSkus = [];
+    foreach ($rows as &$row) {
+        $skuKey = mb_strtolower($row['sku']);
+        $item = $skuKey !== '' ? ($itemsBySku[$skuKey] ?? null) : null;
+        if ($item) {
+            if (!(bool) $item['active'] || $item['deletedAt'] !== null) {
+                $row['errors'][] = 'El SKU pertenece a un artículo inactivo o eliminado.';
+            } elseif ($item['unit'] !== $row['unit']) {
+                $row['errors'][] = "La unidad no coincide con el artículo existente ({$item['unit']}).";
+            } else {
+                $row['action'] = 'existing';
+                $row['itemId'] = (int) $item['id'];
+                $existingSkus[$skuKey] = true;
+                $differences = [];
+                foreach (['name' => 'nombre', 'category' => 'categoría', 'packageName' => 'presentación habitual'] as $field => $label) {
+                    if ((string) $item[$field] !== (string) $row[$field]) $differences[] = $label;
+                }
+                if (abs((float) $item['unitsPerPackage'] - (float) $row['unitsPerPackage']) > 0.0001) $differences[] = 'contenido habitual';
+                if ($differences) {
+                    $row['warnings'][] = 'Se conservarán los datos actuales del artículo; difieren: ' . implode(', ', $differences) . '.';
+                }
+            }
+        } elseif ($row['sku'] !== '') {
+            $row['action'] = 'create';
+            $newSkus[$skuKey] = true;
+        }
+        if ($row['invoiceNumber'] !== '' && isset($existingInvoices[mb_strtolower($row['invoiceNumber'])])) {
+            $row['errors'][] = 'Esta factura ya fue recibida; importarla duplicaría las existencias.';
+        }
+        $row['errors'] = array_values(array_unique($row['errors']));
+        $row['warnings'] = array_values(array_unique($row['warnings']));
+    }
+    unset($row);
+
+    $invoiceKeys = [];
+    foreach (array_filter(array_column($rows, 'invoiceNumber')) as $invoiceNumber) {
+        $invoiceKeys[mb_strtolower((string) $invoiceNumber)] = true;
+    }
+    $invoiceTotals = [];
+    foreach ($rows as $row) {
+        if ($row['invoiceNumber'] === '' || $row['packageQuantity'] === null || $row['packageCost'] === null) continue;
+        $invoiceKey = mb_strtolower($row['invoiceNumber']);
+        $invoiceTotals[$invoiceKey] = ($invoiceTotals[$invoiceKey] ?? 0.0)
+            + $row['packageQuantity'] * $row['packageCost'];
+    }
+    $rowErrorCount = array_sum(array_map(static fn (array $row): int => count($row['errors']), $rows));
+    $warningCount = array_sum(array_map(static fn (array $row): int => count($row['warnings']), $rows));
+    $total = money_round(array_sum(array_map('money_round', $invoiceTotals)));
+    return [
+        'valid' => !$analysis['globalErrors'] && $rowErrorCount === 0,
+        'globalErrors' => $analysis['globalErrors'],
+        'rows' => $rows,
+        'summary' => [
+            'rows' => count($rows),
+            'invoices' => count($invoiceKeys),
+            'newItems' => count($newSkus),
+            'existingItems' => count($existingSkus),
+            'errors' => $rowErrorCount + count($analysis['globalErrors']),
+            'warnings' => $warningCount,
+            'total' => $total,
+        ],
+    ];
+}
+
 function catalog_pagination(int $total, int $defaultPerPage = 20, int $maximumPerPage = 100): array
 {
     $perPage = max(6, min((int) ($_GET['perPage'] ?? $defaultPerPage), $maximumPerPage));
@@ -1158,6 +1440,168 @@ function inventory_purchase_create(array $params = [])
         return $id;
     });
     json_response(['id' => $id], 201);
+}
+
+function inventory_import_preview(array $params = [])
+{
+    require_csrf();
+    require_roles(['admin', 'supervisor']);
+    $analysis = inventory_import_analyze(db(), request_body());
+    json_response($analysis);
+}
+
+function inventory_import_commit(array $params = [])
+{
+    require_csrf();
+    $user = require_roles(['admin', 'supervisor']);
+    $body = request_body();
+    try {
+        $result = transaction(function (PDO $pdo) use ($user, $body): array {
+            $analysis = inventory_import_analyze($pdo, $body, true);
+            if (!$analysis['valid']) {
+                $message = $analysis['globalErrors'][0] ?? null;
+                if (!$message) {
+                    foreach ($analysis['rows'] as $row) {
+                        if ($row['errors']) {
+                            $message = "Fila {$row['rowNumber']}: {$row['errors'][0]}";
+                            break;
+                        }
+                    }
+                }
+                throw new ApiError($message ?: 'El archivo cambió o ya no es válido. Vuelva a verificarlo.', 409);
+            }
+
+            $itemIdsBySku = [];
+            $createdSkus = [];
+            foreach ($analysis['rows'] as $row) {
+                $skuKey = mb_strtolower($row['sku']);
+                if ($row['action'] === 'existing') {
+                    $itemIdsBySku[$skuKey] = (int) $row['itemId'];
+                    continue;
+                }
+                if (isset($itemIdsBySku[$skuKey])) continue;
+                $statement = $pdo->prepare(
+                    'INSERT INTO inventory_items
+                       (sku, name, category, unit, package_name, units_per_package,
+                        lead_time_days, safety_stock_days, target_stock_days,
+                        current_stock, minimum_stock, average_cost)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0)'
+                );
+                $statement->execute([
+                    $row['sku'], $row['name'], $row['category'], $row['unit'],
+                    $row['packageName'], $row['unitsPerPackage'], $row['leadTimeDays'],
+                    $row['safetyStockDays'], $row['targetStockDays'], $row['minimumStock'],
+                ]);
+                $itemId = (int) $pdo->lastInsertId();
+                $itemIdsBySku[$skuKey] = $itemId;
+                $createdSkus[$skuKey] = true;
+                audit_log($pdo, $user, 'create', 'inventory_item', $itemId, null, [
+                    'source' => 'inventory_import',
+                    'sku' => $row['sku'],
+                    'name' => $row['name'],
+                    'category' => $row['category'],
+                    'unit' => $row['unit'],
+                    'packageName' => $row['packageName'],
+                    'unitsPerPackage' => $row['unitsPerPackage'],
+                    'minimumStock' => $row['minimumStock'],
+                    'leadTimeDays' => $row['leadTimeDays'],
+                    'safetyStockDays' => $row['safetyStockDays'],
+                    'targetStockDays' => $row['targetStockDays'],
+                ]);
+            }
+
+            $invoices = [];
+            foreach ($analysis['rows'] as $row) {
+                $invoiceKey = mb_strtolower($row['invoiceNumber']);
+                if (!isset($invoices[$invoiceKey])) {
+                    $invoices[$invoiceKey] = ['invoiceNumber' => $row['invoiceNumber'], 'lines' => []];
+                }
+                $invoices[$invoiceKey]['lines'][] = $row;
+            }
+            $purchaseIds = [];
+            $grandTotal = 0.0;
+            foreach ($invoices as $invoice) {
+                $invoiceNumber = $invoice['invoiceNumber'];
+                $lines = $invoice['lines'];
+                $purchaseTotal = money_round(array_sum(array_map(
+                    static fn (array $line): float => $line['packageQuantity'] * $line['packageCost'],
+                    $lines
+                )));
+                $purchaseNotes = array_values(array_unique(array_filter(array_column($lines, 'notes'))));
+                $purchaseNotes = $purchaseNotes ? mb_substr(implode(' | ', $purchaseNotes), 0, 500) : null;
+                $purchase = $pdo->prepare(
+                    'INSERT INTO purchases (invoice_number, purchased_at, total, notes, created_by) VALUES (?, ?, ?, ?, ?)'
+                );
+                $purchase->execute([
+                    $invoiceNumber,
+                    $lines[0]['purchasedAt'] . ' 00:00:00',
+                    $purchaseTotal,
+                    $purchaseNotes,
+                    $user['id'],
+                ]);
+                $purchaseId = (int) $pdo->lastInsertId();
+                $purchaseIds[] = $purchaseId;
+                foreach ($lines as $line) {
+                    $itemId = $itemIdsBySku[mb_strtolower($line['sku'])];
+                    $select = $pdo->prepare(
+                        'SELECT current_stock, average_cost FROM inventory_items
+                         WHERE id = ? AND active = TRUE AND deleted_at IS NULL FOR UPDATE'
+                    );
+                    $select->execute([$itemId]);
+                    $item = $select->fetch();
+                    if (!$item) throw new ApiError('Uno de los artículos dejó de estar disponible.', 409);
+                    $conversion = inventory_purchase_conversion(
+                        (float) $line['packageQuantity'],
+                        (float) $line['unitsPerPackage'],
+                        (float) $line['packageCost']
+                    );
+                    $quantity = $conversion['quantity'];
+                    $unitCost = $conversion['unitCost'];
+                    $oldValue = (float) $item['current_stock'] * (float) $item['average_cost'];
+                    $newStock = (float) $item['current_stock'] + $quantity;
+                    $newCost = $newStock > 0 ? ($oldValue + $quantity * $unitCost) / $newStock : $unitCost;
+                    $pdo->prepare(
+                        'INSERT INTO purchase_items
+                           (purchase_id, inventory_item_id, package_name, package_quantity,
+                            units_per_package, package_cost, quantity, unit_cost)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    )->execute([
+                        $purchaseId, $itemId, $line['packageName'], $line['packageQuantity'],
+                        $line['unitsPerPackage'], $line['packageCost'], $quantity, $unitCost,
+                    ]);
+                    $pdo->prepare('UPDATE inventory_items SET current_stock = ?, average_cost = ? WHERE id = ?')
+                        ->execute([$newStock, $newCost, $itemId]);
+                    $pdo->prepare(
+                        "INSERT INTO inventory_movements
+                           (inventory_item_id, movement_type, quantity, unit_cost, reference_type, reference_id, notes, created_by)
+                         VALUES (?, 'purchase', ?, ?, 'purchase', ?, 'Importación de inventario', ?)"
+                    )->execute([$itemId, $quantity, $unitCost, $purchaseId, $user['id']]);
+                }
+                audit_log($pdo, $user, 'receive', 'purchase', $purchaseId, null, [
+                    'source' => 'inventory_import',
+                    'invoiceNumber' => $invoiceNumber,
+                    'total' => $purchaseTotal,
+                    'items' => count($lines),
+                ]);
+                $grandTotal += $purchaseTotal;
+            }
+            $summary = [
+                'rows' => count($analysis['rows']),
+                'invoices' => count($purchaseIds),
+                'newItems' => count($createdSkus),
+                'existingItems' => $analysis['summary']['existingItems'],
+                'total' => money_round($grandTotal),
+            ];
+            audit_log($pdo, $user, 'import', 'inventory', null, null, $summary);
+            return ['purchaseIds' => $purchaseIds, 'summary' => $summary];
+        });
+    } catch (PDOException $error) {
+        if ((string) $error->getCode() === '23000') {
+            throw new ApiError('El archivo contiene un SKU que ya fue creado por otra operación. Vuelva a verificarlo.', 409);
+        }
+        throw $error;
+    }
+    json_response($result, 201);
 }
 
 function inventory_movements(array $params = [])
