@@ -68,6 +68,28 @@ try {
 }
 pos_test_assert($excessPrecisionRejected, 'El POS aceptó más decimales de los que almacena MySQL.');
 
+foreach (['cash', 'card', 'yappy'] as $method) {
+    $payments = pos_payment_entries([['method' => $method, 'amount' => 5.50, 'reference' => null]]);
+    pos_test_assert($payments[0]['method'] === $method, "El POS rechazó el método de pago {$method}.");
+    pos_test_money(5.50, $payments[0]['amount'], "El POS cambió el monto para {$method}.");
+}
+$splitPayments = pos_payment_entries([
+    ['method' => 'cash', 'amount' => 2.00, 'reference' => null],
+    ['method' => 'card', 'amount' => 2.00, 'reference' => 'AUTH-1'],
+    ['method' => 'yappy', 'amount' => 1.50, 'reference' => 'YAPPY-1'],
+]);
+pos_test_assert(count($splitPayments) === 3, 'El POS rechazó un pago combinado con los tres métodos.');
+$duplicatePaymentRejected = false;
+try {
+    pos_payment_entries([
+        ['method' => 'card', 'amount' => 3.00],
+        ['method' => 'card', 'amount' => 2.50],
+    ]);
+} catch (ApiError $error) {
+    $duplicatePaymentRejected = true;
+}
+pos_test_assert($duplicatePaymentRejected, 'El POS aceptó un método de pago duplicado.');
+
 $beerPackage = inventory_package_definition([
     'packageName' => 'Caja de 24',
     'unitsPerPackage' => 24,

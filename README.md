@@ -31,6 +31,41 @@ En el repositorio, ve a **Settings → Pages**, selecciona **Deploy from a branc
 
 Activa también **Enforce HTTPS** en **Settings → Pages** y comparte siempre la dirección que comienza con `https://`.
 
+## Despliegue controlado a producción
+
+El proyecto incluye `scripts/deploy-production.sh`, que publica mediante SSH y
+`rsync` solamente los archivos definidos en `deploy/production-files.txt`. No
+sube inventarios de `outputs/`, pruebas, documentación, herramientas de
+desarrollo, secretos ni originales de `productos-noox-webp/`. También conserva
+las fotografías cargadas en producción bajo
+`admin/public/uploads/products/`.
+
+La configuración se hace una sola vez:
+
+```bash
+cp .deploy.env.example .deploy.env
+chmod 600 .deploy.env
+```
+
+Complete en `.deploy.env` el usuario/servidor SSH y las rutas reales. El archivo
+está ignorado por Git. Para ver exactamente qué se transferiría sin modificar
+el servidor:
+
+```bash
+./scripts/deploy-production.sh --dry-run
+```
+
+Para publicar, respaldar los archivos reemplazados, validar PHP, actualizar el
+esquema configurado y comprobar `/api/health`:
+
+```bash
+./scripts/deploy-production.sh --apply
+```
+
+Las instrucciones de `AGENTS.md` permiten pedirle a Codex simplemente **"sube
+cambios a producción"**. Codex revisará la vista previa y las pruebas antes de
+ejecutar la publicación.
+
 ## Personalización
 
 Los colores principales están definidos como variables al comienzo de `styles.css`. El logo transparente mostrado se encuentra en `assets/nox-logo-transparent.png`; la imagen social original está en `assets/nox-logo.png` y el favicon usa el isotipo de las dos “O” entrelazadas en `assets/favicon.svg`.

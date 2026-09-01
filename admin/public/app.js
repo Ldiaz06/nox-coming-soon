@@ -79,6 +79,20 @@ const panamaDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/P
 const NEW_CATEGORY = "__new_category__";
 const CUSTOM_PACKAGE = "__custom_package__";
 const DEFAULT_PRODUCT_IMAGE = "/assets/product-default-v3.webp";
+const STATIC_PRODUCT_IMAGE_SKUS = new Set([
+  "BOT-CHA-MOET-ROSE", "BOT-ESP-MIONETTO", "BOT-ESP-RICCADONNA", "BOT-VIN-19-CRIMES",
+  "COP-ESP-MIONETTO", "COP-ESP-RICCADONNA", "COP-VIN-19-CRIMES", "COP-VIN-HOUSE-RED",
+  "HBL-ABSOLUT-SODA", "HBL-BOMBAY-TONIC", "HBL-GREY-GOOSE-SODA", "HBL-HENDRICKS-TONIC",
+  "HBL-JACK-SODA", "HBL-SECO-SODA", "HBL-SMIRNOFF-SODA", "HBL-TANQUERAY-TONIC",
+  "MIX-FEVERTREE-INDIAN", "MIX-SCHWEPPES-CLUB",
+  "SHT-1800-CRISTALINO", "SHT-1800-SILVER", "SHT-CUERVO-REPO", "SHT-CUERVO-SILVER",
+  "SHT-DON-JULIO-70", "SHT-GRAN-MALO", "SHT-SECO", "SPR-APEROL",
+  "SRV-GIN-BOMBAY", "SRV-GIN-HENDRICKS", "SRV-GIN-TANQUERAY", "SRV-RON-ABUELO", "SRV-RON-TWO-OAKS",
+  "SRV-TEQ-1800-CRISTALINO", "SRV-TEQ-1800-SILVER", "SRV-TEQ-CUERVO-REPO", "SRV-TEQ-CUERVO-SILVER",
+  "SRV-TEQ-DON-JULIO-70", "SRV-VOD-ABSOLUT", "SRV-VOD-GREY-GOOSE", "SRV-VOD-SMIRNOFF",
+  "SRV-WHI-BUCHANANS-12", "SRV-WHI-BUCHANANS-PINE", "SRV-WHI-CHIVAS-12", "SRV-WHI-JACK-HONEY",
+  "SRV-WHI-JACK", "SRV-WHI-OLD-PARR", "TRG-BAILEYS", "TRG-JACK-HONEY"
+]);
 const PRODUCT_IMAGE_SIZE = 768;
 const PRODUCT_IMAGE_QUALITY = 0.82;
 const articleCategories = [
@@ -1574,6 +1588,14 @@ function productIcon(product) {
   return "✦";
 }
 
+function productImageUrl(product) {
+  if (product.imageUrl && product.imageUrl !== DEFAULT_PRODUCT_IMAGE) return product.imageUrl;
+  const sku = String(product.sku || "").trim().toUpperCase();
+  return STATIC_PRODUCT_IMAGE_SKUS.has(sku)
+    ? `/assets/products/${encodeURIComponent(sku)}.webp`
+    : DEFAULT_PRODUCT_IMAGE;
+}
+
 function renderProducts() {
   if (!state.posMode) {
     $("#product-grid").innerHTML = '<div class="pos-selection-prompt"><span aria-hidden="true">👤</span><strong>Primero seleccione una cuenta</strong><small>El catálogo se habilitará para el cliente elegido o para una venta rápida.</small></div>';
@@ -1582,7 +1604,7 @@ function renderProducts() {
   }
   $("#product-grid").innerHTML = state.products.length ? state.products.map((product) => `
     <button class="product-card" data-product-id="${product.id}" aria-label="Agregar ${escapeHtml(product.name)}, ${money.format(product.salePrice)}">
-      <img class="product-photo" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async">
+      <img class="product-photo" src="${escapeHtml(productImageUrl(product))}" alt="" loading="lazy" decoding="async">
       <small>${escapeHtml(product.category)} · <span class="product-stock">${Math.floor(product.available)} disponibles</span></small>
       <strong>${escapeHtml(product.name)}</strong><span class="product-price">${money.format(product.salePrice)}</span>
     </button>`).join("") : '<p class="empty-state">No hay productos disponibles con este filtro.</p>';
@@ -1721,14 +1743,27 @@ function renderCart() {
   $("#cart-total").textContent = money.format(totals.total);
   updatePosPaymentSummary();
   const open = ownOpenSession();
-  $("#complete-sale").disabled = !state.posMode || !lines.length || !open || totals.total <= 0;
+  const saleReady = Boolean(state.posMode) && lines.length > 0 && totals.total > 0;
+  const completeButton = $("#complete-sale");
+  completeButton.disabled = !saleReady;
+  completeButton.textContent = saleReady && !open
+    ? "Abrir caja para cobrar"
+    : state.posMode === "tab"
+      ? "Cobrar cuenta"
+      : state.posMode === "quick"
+        ? "Cobrar venta rápida"
+        : "Seleccione una cuenta";
 }
 
 async function completeSale() {
   if (!state.posMode) return toast("Primero seleccione una cuenta o Venta rápida.", true);
   await state.tabMutation.catch(() => null);
   const open = ownOpenSession();
-  if (!open) return toast("Debe abrir una caja antes de vender.", true);
+  if (!open) {
+    toast("Abra su caja para cobrar con efectivo, tarjeta o Yappy.", true);
+    await navigate("cash");
+    return;
+  }
   const totals = cartTotals();
   if (totals.total <= 0) return toast("El total debe ser mayor que cero.", true);
   let payments;
@@ -1898,8 +1933,9 @@ function renderInventoryProducts() {
     const active = Number(product.active) === 1;
     const margin = Number(product.grossMargin || 0);
     const target = Number(product.targetMargin || 0);
-    const hasCustomPhoto = product.imageUrl && product.imageUrl !== DEFAULT_PRODUCT_IMAGE;
-    return `<tr><td class="select-column"><input class="row-select" type="checkbox" data-select-product="${product.id}" aria-label="Seleccionar ${escapeHtml(product.name)}" ${state.selectedProductIds.has(Number(product.id)) ? "checked" : ""}></td><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell"><img class="product-thumb" src="${escapeHtml(product.imageUrl || DEFAULT_PRODUCT_IMAGE)}" alt="" loading="lazy" decoding="async"><div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${hasCustomPhoto ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td><td><button type="button" class="table-action" data-edit-product="${product.id}">Editar</button> <button type="button" class="table-action table-action--danger" data-delete-product="${product.id}">Eliminar</button></td></tr>`;
+    const displayImageUrl = productImageUrl(product);
+    const hasProductPhoto = displayImageUrl !== DEFAULT_PRODUCT_IMAGE;
+    return `<tr><td class="select-column"><input class="row-select" type="checkbox" data-select-product="${product.id}" aria-label="Seleccionar ${escapeHtml(product.name)}" ${state.selectedProductIds.has(Number(product.id)) ? "checked" : ""}></td><td>${escapeHtml(product.sku)}</td><td><div class="product-name-cell"><img class="product-thumb" src="${escapeHtml(displayImageUrl)}" alt="" loading="lazy" decoding="async"><div><strong>${escapeHtml(product.name)}</strong>${product.barcode ? `<small>${escapeHtml(product.barcode)}</small>` : ""}<button type="button" class="table-action product-photo-action" data-product-image-id="${product.id}">${hasProductPhoto ? "Cambiar foto" : "Agregar foto"}</button></div></div></td><td>${escapeHtml(product.category)}</td><td>${money.format(product.salePrice)}</td><td>${money.format(product.recipeCost)}</td><td><strong>${money.format(product.suggestedPrice)}</strong></td><td><span class="badge ${margin >= target ? "badge--success" : "badge--warning"}">${(margin * 100).toFixed(1)}%</span><small>Meta ${(target * 100).toFixed(1)}%</small></td><td>${recipe}</td><td><span class="badge ${active ? "badge--success" : "badge--danger"}">${active ? "Activo" : "Inactivo"}</span></td><td><button type="button" class="table-action" data-edit-product="${product.id}">Editar</button> <button type="button" class="table-action table-action--danger" data-delete-product="${product.id}">Eliminar</button></td></tr>`;
   }).join("") || '<tr><td colspan="11" class="empty-state">No hay productos de venta registrados.</td></tr>';
   updateBulkSelectionControls("products");
 }

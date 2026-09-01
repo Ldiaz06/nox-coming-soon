@@ -1,0 +1,25 @@
+# Lista permitida para producción.
+# Este archivo es documentación verificable; scripts/deploy-production.sh aplica
+# esta misma lista de forma explícita.
+
+# Sitio público
+index.html
+styles.css
+script.js
+robots.txt
+sitemap.xml
+assets/
+menu/
+
+# Aplicación administrativa
+admin/.htaccess
+admin/app/
+admin/config/.htaccess
+admin/db/
+admin/public/
+
+# Exclusiones dentro de rutas permitidas
+!admin/public/uploads/products/**
+!**/.DS_Store
+!**/.gitkeep
+!**/*.log

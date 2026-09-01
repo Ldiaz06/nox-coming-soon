@@ -1,2 +1,6 @@
 .DS_Store
 **/.DS_Store
+
+# Archivos locales que nunca forman parte de una publicación.
+.deploy.env
+outputs/

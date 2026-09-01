@@ -52,6 +52,27 @@ function pos_quantity($value, bool $allowZero = false): float
     return round($quantity, 3);
 }
 
+function pos_payment_entries(array $sourcePayments): array
+{
+    if (!$sourcePayments || count($sourcePayments) > 3) {
+        throw new ApiError('La venta debe contener pagos.');
+    }
+    $payments = [];
+    $paymentMethods = [];
+    foreach ($sourcePayments as $payment) {
+        if (!is_array($payment)) throw new ApiError('Pago inválido.');
+        $method = require_choice($payment['method'] ?? '', ['cash', 'card', 'yappy'], 'method');
+        if (isset($paymentMethods[$method])) throw new ApiError('Cada método de pago solo puede utilizarse una vez.');
+        $paymentMethods[$method] = true;
+        $payments[] = [
+            'method' => $method,
+            'amount' => value_number($payment, 'amount', 0.01),
+            'reference' => value_string($payment, 'reference', 0, 120, false),
+        ];
+    }
+    return $payments;
+}
+
 function inventory_movement_result(float $currentStock, float $reservedStock, string $type, float $quantity): array
 {
     if (!is_finite($currentStock) || !is_finite($reservedStock) || !is_finite($quantity)) {
@@ -2228,19 +2249,7 @@ function pos_sale_create(array $params = [])
         $requested[$productId] = ($requested[$productId] ?? 0) + $quantity;
         if ($requested[$productId] > 100) throw new ApiError('La cantidad acumulada de un producto no puede superar 100.');
     }
-    $payments = [];
-    $paymentMethods = [];
-    foreach ($body['payments'] as $payment) {
-        if (!is_array($payment)) throw new ApiError('Pago inválido.');
-        $method = require_choice($payment['method'] ?? '', ['cash', 'card', 'yappy'], 'method');
-        if (isset($paymentMethods[$method])) throw new ApiError('Cada método de pago solo puede utilizarse una vez.');
-        $paymentMethods[$method] = true;
-        $payments[] = [
-            'method' => $method,
-            'amount' => value_number($payment, 'amount', 0.01),
-            'reference' => value_string($payment, 'reference', 0, 120, false),
-        ];
-    }
+    $payments = pos_payment_entries($body['payments']);
 
     $result = transaction(function (PDO $pdo) use ($user, $sessionId, $tabId, $discount, $requested, $payments): array {
         $sessionStatement = $pdo->prepare("SELECT id, opened_by FROM cash_sessions WHERE id = ? AND status = 'open' FOR UPDATE");
